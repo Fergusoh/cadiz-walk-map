@@ -47,12 +47,18 @@
             background-color: #FEF2F2; /* Light red on hover */
         }
         
-        /* Style for the locate button */
-        #locate-button {
+        /* Style for the control buttons container */
+        .map-controls {
             position: absolute;
             top: 1rem;
             right: 1rem;
             z-index: 1000;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Style for individual control buttons */
+        .map-control-button {
             padding: 0.5rem;
             background-color: white;
             border-radius: 0.5rem;
@@ -60,7 +66,7 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        #locate-button:hover {
+        .map-control-button:hover {
             background-color: #FEE2E2;
         }
         
@@ -93,7 +99,7 @@
         <!-- Sidebar for Stops List -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops are manually traced. Start tracking your location for real-time guidance!</p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-7 is manually traced. Start tracking your location for real-time guidance!</p>
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
@@ -110,13 +116,24 @@
                 <p id="next-stop-distance" class="text-sm font-semibold text-gray-700">Distance: --</p>
             </div>
 
-            <!-- Locate Me Button -->
-            <button id="locate-button" aria-label="Locate Me on Map">
-                <!-- Lucide Icon for Compass/Target -->
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate">
-                    <line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/>
-                </svg>
-            </button>
+            <!-- Control Buttons Container -->
+            <div class="map-controls">
+                <!-- Navigation Panel Toggle Button -->
+                <button id="nav-toggle-button" aria-label="Toggle Navigation Panel" class="map-control-button text-red-600">
+                    <!-- Eye icon for visibility toggle - default is visible (open eye) -->
+                    <svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
+                
+                <!-- Locate Me Button -->
+                <button id="locate-button" aria-label="Locate Me on Map" class="map-control-button">
+                    <!-- Lucide Icon for Compass/Target -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate">
+                        <line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/>
+                    </svg>
+                </button>
+            </div>
             
             <!-- Custom Modal for messages -->
             <div id="message-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden items-center justify-center p-4 z-[2000]">
@@ -164,6 +181,10 @@
         let locateWatchId = null; 
         // Index of the NEXT stop the user should be heading towards (0-indexed)
         let currentStopIndex = 1; 
+        
+        // NEW STATE: Controls the visibility of the navigation panel
+        let isNavPanelVisible = true;
+
 
         
         // --- Manual Path Tracing Coordinates ---
@@ -276,8 +297,13 @@
             const distanceElement = document.getElementById('next-stop-distance');
             const navPanel = document.getElementById('navigation-panel');
             
-            // Show the panel when location is active
-            navPanel.classList.remove('hidden');
+            // Check if tracking is active AND the user wants the panel visible
+            if (locateWatchId !== null && isNavPanelVisible) {
+                navPanel.classList.remove('hidden');
+            } else {
+                navPanel.classList.add('hidden');
+                return; // Exit early if panel should be hidden
+            }
             
             // Check if we are past the last stop
             if (currentStopIndex >= stops.length) {
@@ -357,11 +383,46 @@
 
             // 4. Attach event listeners
             document.getElementById('locate-button').addEventListener('click', toggleLocationTracking);
+            document.getElementById('nav-toggle-button').addEventListener('click', toggleNavigationPanel);
+            
             document.getElementById('modal-close-button').addEventListener('click', () => {
                 document.getElementById('message-modal').classList.remove('flex');
                 document.getElementById('message-modal').classList.add('hidden');
             });
         }
+        
+        /**
+         * Toggles the visibility state of the navigation panel.
+         */
+        function toggleNavigationPanel() {
+            isNavPanelVisible = !isNavPanelVisible;
+            const navPanel = document.getElementById('navigation-panel');
+            const toggleButton = document.getElementById('nav-toggle-button');
+            const toggleIcon = document.getElementById('nav-toggle-icon');
+            
+            if (isNavPanelVisible) {
+                // Panel is ON (visible)
+                toggleButton.classList.add('text-red-600');
+                toggleButton.classList.remove('text-gray-500');
+                // Set icon to 'eye' (visible)
+                toggleIcon.outerHTML = '<svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+                
+                // If tracking is active, show the panel immediately
+                if (locateWatchId !== null) {
+                    navPanel.classList.remove('hidden');
+                }
+                showMessageModal("Navigation Panel", "Real-time navigation guidance is now visible.");
+            } else {
+                // Panel is OFF (hidden)
+                navPanel.classList.add('hidden');
+                toggleButton.classList.remove('text-red-600');
+                toggleButton.classList.add('text-gray-500');
+                 // Set icon to 'eye-off' (hidden)
+                toggleIcon.outerHTML = '<svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye-off"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.34-1.65"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
+                showMessageModal("Navigation Panel", "Real-time navigation guidance is now hidden.");
+            }
+        }
+
 
         function onLocationFound(e) {
             const radius = e.coords.accuracy;
@@ -400,7 +461,7 @@
                  map.isUserLocating = false;
             }
             
-            // NEW: Update the navigation panel with real-time data
+            // Update the navigation panel with real-time data. Visibility is checked inside this function.
             updateNavigationPanel(e.coords.latitude, e.coords.longitude);
         }
 
@@ -449,7 +510,9 @@
                 accuracyCircle = null;
             }
             document.getElementById('locate-button').classList.remove('text-red-600', 'font-bold');
-            document.getElementById('navigation-panel').classList.add('hidden');
+            // Ensure the panel is hidden when tracking stops, regardless of the toggle state
+            document.getElementById('navigation-panel').classList.add('hidden'); 
+            
             // Remove all sidebar highlights
             document.querySelectorAll('.sidebar-item').forEach(item => {
                 item.classList.remove('bg-red-100', 'border-red-600');
@@ -493,8 +556,8 @@
                     <div class="font-bold text-red-600 text-lg mb-1">STOP ${stop.id}: ${stop.name}</div>
                     <p class="text-gray-700 text-sm">${stop.description}</p>
                 `;
+                // Leaflet default settings ensure closeButton: true (visible) and only one popup is open
                 marker.bindPopup(popupContent, {
-                    closeButton: false,
                     offset: L.point(0, -10)
                 });
                 
@@ -544,7 +607,7 @@
                 // Pan map to the marker location
                 map.flyTo(marker.getLatLng(), 17, { duration: 1.0 });
 
-                // Open the marker's popup
+                // Open the marker's popup (Leaflet automatically closes others)
                 marker.openPopup();
                 
                 // Optional: When clicking on a stop, update the currentStopIndex 
