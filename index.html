@@ -104,8 +104,6 @@
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
             <p class="text-sm text-gray-500 mb-4">19 stops | Start tracking your location for real-time guidance!</p>
             
-            <!-- Removed Dynamic Navigation Panel -->
-            
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here. Guidance will be injected into the next stop's item. -->
             </div>
@@ -117,8 +115,8 @@
             
             <!-- Control Buttons Container -->
             <div class="map-controls">
-                <!-- Locate Me Button -->
-                <button id="locate-button" aria-label="Locate Me on Map" class="map-control-button">
+                <!-- Locate Me Button (Accessibility: has aria-label) -->
+                <button id="locate-button" aria-label="Toggle location tracking" class="map-control-button">
                     <!-- Lucide Icon for Compass/Target -->
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate">
                         <line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/>
@@ -350,7 +348,9 @@
             const distance = userLatLng.distanceTo(stopLatLng); 
 
             let distanceText;
-            if (distance < 1000) {
+            if (distance < 5) {
+                distanceText = `Very close! (${Math.round(distance)} m)`;
+            } else if (distance < 1000) {
                 distanceText = `${Math.round(distance)} meters`;
             } else {
                 distanceText = `${(distance / 1000).toFixed(2)} km`;
@@ -371,9 +371,12 @@
             if (itemToUpdate) {
                 const guidanceDiv = document.createElement('div');
                 guidanceDiv.className = 'guidance-info pt-1 mt-2 border-t border-red-300';
+                // Use aria-live="polite" to announce distance updates to screen readers
                 guidanceDiv.innerHTML = `
-                    <p class="text-xs font-medium text-gray-500 uppercase">Current Target:</p>
-                    <p class="text-sm font-bold text-red-700">Distance: ${distanceText}</p>
+                    <div aria-live="polite"> 
+                        <p class="text-xs font-medium text-gray-500 uppercase">Current Target:</p>
+                        <p class="text-sm font-bold text-red-700">Distance: ${distanceText}</p>
+                    </div>
                 `;
                 
                 itemToUpdate.appendChild(guidanceDiv);
@@ -571,20 +574,18 @@
                     offset: L.point(0, -10)
                 });
                 
-                // Add click listener to marker
-                marker.on('click', () => {
-                    handleStopClick(stop.id, marker);
-                });
-
-
-                // --- 4. Create Sidebar Item ---
+                // --- 4. Create Sidebar Item (Accessibility: role="button", tabindex="0") ---
                 const listItem = document.createElement('div');
                 listItem.id = `stop-${stop.id}`;
-                // Note: The `pb-3` padding here is default. It is dynamically adjusted via CSS when highlighted
-                listItem.className = 'sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400';
+                listItem.setAttribute('role', 'button');
+                listItem.setAttribute('tabindex', '0'); 
+                // Added focus styles for keyboard navigation visual feedback
+                listItem.className = 'sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50';
+                
                 listItem.innerHTML = `
                     <div class="flex items-center space-x-3">
-                        <div class="tour-marker bg-red-500">${stop.id}</div>
+                        <!-- FIX: Used explicit Tailwind classes for a perfectly round, non-squashed icon -->
+                        <div class="w-6 h-6 flex items-center justify-center rounded-full bg-red-500 text-white font-bold text-sm shadow-md flex-shrink-0">${stop.id}</div>
                         <div class="flex-grow">
                             <h3 class="text-base font-semibold text-gray-800">${stop.name}</h3>
                             <p class="text-xs text-gray-500 truncate">${stop.description}</p>
@@ -593,8 +594,13 @@
                 `;
 
                 // Add click listener to sidebar item
-                listItem.addEventListener('click', () => {
-                    handleStopClick(stop.id, marker);
+                listItem.addEventListener('click', () => handleStopClick(stop.id, marker));
+                // Add keyboard listener for Enter/Space key activation
+                listItem.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault(); // Prevent default scroll/space behavior
+                        handleStopClick(stop.id, marker);
+                    }
                 });
 
                 stopsList.appendChild(listItem);
@@ -627,7 +633,8 @@
                     if (locateWatchId !== null) {
                          showMessageModal("Navigation Updated", `Now navigating toward STOP ${currentStopIndex + 1}.`);
                          // Update the map marker and guidance immediately if tracking is active
-                         updateGuidanceInSidebar(map.getCenter().lat, map.getCenter().lng);
+                         // Use map center as a proxy for user location if real location isn't available right away
+                         updateGuidanceInSidebar(locationMarker ? locationMarker.getLatLng().lat : map.getCenter().lat, locationMarker ? locationMarker.getLatLng().lng : map.getCenter().lng);
                     }
                 }
 
