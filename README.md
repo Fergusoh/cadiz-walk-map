@@ -1,4 +1,4 @@
-🗺️ Cádiz Old Town Self-Guided Walking Tour Map
+🗺️ Cádiz Self-Guided Walking Tour Map
 This is a single-file, interactive web application that provides a map and a walking route for a self-guided tour of the historic Old Town of Cádiz, Spain.
 The app is built using vanilla HTML, CSS (via Tailwind CSS), and JavaScript, leveraging the Leaflet.js library for mapping functionality.
 Features
