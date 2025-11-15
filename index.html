@@ -9,7 +9,6 @@
     
     <!-- Load Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <!-- Leaflet Routing Machine CSS removed as routing is now a simple polyline -->
 
     <style>
         /* Custom styles for Leaflet map display */
@@ -24,6 +23,7 @@
             margin: 0;
             font-family: 'Inter', sans-serif;
         }
+        
         /* Custom Marker Styling (using a simple circle) */
         .tour-marker {
             display: flex;
@@ -31,7 +31,7 @@
             justify-content: center;
             font-weight: bold;
             color: white;
-            background-color: #EF4444; /* Red color */
+            background-color: #EF4444; /* Default Red color */
             border: 2px solid white;
             border-radius: 50%;
             width: 25px;
@@ -39,7 +39,19 @@
             text-align: center;
             line-height: 25px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+            transition: all 0.2s; /* Added transition for smooth change */
         }
+
+        /* New style for the "Next Stop" marker */
+        .next-stop-marker {
+            background-color: #10B981 !important; /* Green color */
+            border: 3px solid #6EE7B7 !important; /* Brighter border */
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.8) !important; /* Green glow */
+            width: 30px; /* Slightly larger */
+            height: 30px;
+            line-height: 30px;
+        }
+
         .leaflet-popup-content-wrapper {
             border-radius: 0.5rem;
         }
@@ -70,20 +82,6 @@
             background-color: #FEE2E2;
         }
         
-        /* Style for the navigation panel */
-        #navigation-panel {
-            position: absolute;
-            top: 1rem;
-            left: 1rem;
-            z-index: 1000;
-            background-color: white;
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            font-family: 'Inter', sans-serif;
-            min-width: 200px;
-        }
-
         /* Style the polyline path */
         .tour-path {
             color: #EF4444; 
@@ -99,7 +97,15 @@
         <!-- Sidebar for Stops List -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-7 is manually traced. Start tracking your location for real-time guidance!</p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | Start tracking your location for real-time guidance!</p>
+            
+            <!-- Dynamic Navigation Panel (MOVED to Sidebar) -->
+            <div id="navigation-panel" class="p-3 bg-red-50 border-l-4 border-red-600 rounded-r-lg mb-4 shadow-sm hidden transition-all">
+                <p class="text-xs font-medium text-gray-500 mb-1 uppercase">Next Stop Guidance</p>
+                <h3 id="next-stop-name" class="text-lg font-bold text-red-700 truncate">--</h3>
+                <p id="next-stop-distance" class="text-sm font-semibold text-gray-700">Distance: --</p>
+            </div>
+            
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
@@ -109,23 +115,8 @@
         <div class="w-full lg:w-2/3 shadow-xl rounded-xl order-1 lg:order-2 h-96 lg:h-full relative">
             <div id="map"></div>
             
-            <!-- Dynamic Navigation Panel -->
-            <div id="navigation-panel" class="hidden">
-                <p class="text-xs font-medium text-gray-500 mb-1 uppercase">Next Stop</p>
-                <h3 id="next-stop-name" class="text-lg font-bold text-red-600 truncate">--</h3>
-                <p id="next-stop-distance" class="text-sm font-semibold text-gray-700">Distance: --</p>
-            </div>
-
             <!-- Control Buttons Container -->
             <div class="map-controls">
-                <!-- Navigation Panel Toggle Button -->
-                <button id="nav-toggle-button" aria-label="Toggle Navigation Panel" class="map-control-button text-red-600">
-                    <!-- Eye icon for visibility toggle - default is visible (open eye) -->
-                    <svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye">
-                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                </button>
-                
                 <!-- Locate Me Button -->
                 <button id="locate-button" aria-label="Locate Me on Map" class="map-control-button">
                     <!-- Lucide Icon for Compass/Target -->
@@ -182,103 +173,100 @@
         // Index of the NEXT stop the user should be heading towards (0-indexed)
         let currentStopIndex = 1; 
         
-        // NEW STATE: Controls the visibility of the navigation panel
-        let isNavPanelVisible = true;
+        // NEW State for managing marker icon changes
+        let allMarkers = []; // Array to store all Leaflet marker instances ({ id, marker })
+        let highlightedMarker = null; // Stores the currently highlighted Leaflet marker instance
+        
+        // Custom Icon Options
+        const defaultIconOptions = {
+            className: 'tour-marker',
+            iconSize: [25, 25],
+            iconAnchor: [12.5, 25]
+        };
+        
+        // Custom style for the NEXT stop
+        const nextStopIconOptions = {
+            className: 'tour-marker next-stop-marker', 
+            iconSize: [30, 30], 
+            iconAnchor: [15, 30] 
+        };
 
 
         
         // --- Manual Path Tracing Coordinates ---
-        // This array holds the final coordinates for the polyline, including intermediate points 
-        // manually collected from an external map to follow the actual streets.
         const detailedCoords = [
             // =========================================================
             // MANUALLY TRACED SEGMENT: STOPS 1 to 7
             // =========================================================
-            
-            // Stop 1: Plaza de San Juan de Dios (Start)
-            [36.5303, -6.2927],
-            // Corner of Plaza/Calle Plocia
+            [36.5303, -6.2927], // Stop 1: Plaza de San Juan de Dios (Start)
             [36.5300, -6.2930], 
-            // Following Calle Plocia toward the Cathedral
             [36.5298, -6.2935], 
-            // Turning onto Calle Pelota/passing Arco de la Rosa
             [36.5293, -6.2943], // Stop 2: Arco de la Rosa
-            // Turning towards Casa del Obispo
             [36.5295, -6.2948], 
-            // Entering the site area
             [36.5297, -6.2955], // Stop 3: Casa del Obispo
-            // Tracing the path north to Teatro Romano
             [36.5303, -6.2945], 
             [36.5310, -6.2935], 
             [36.5317, -6.2925], // Stop 4: Teatro Romano
-            // Tracing back south-west to the Cathedral entrance
             [36.5305, -6.2937], 
             [36.5294, -6.2952], // Stop 5: Cádiz Cathedral
             
             // --- Tracing Stop 5 (Cathedral) to Stop 6 (Pópulo) ---
-            [36.5298, -6.2942], // Through Pópulo Archway
-            [36.5305, -6.2938], // Alleyway corner
+            [36.5298, -6.2942], 
+            [36.5305, -6.2938], 
             [36.5314, -6.2934], // Stop 6: Barrio del Pópulo
             
             // --- Tracing Stop 6 (Pópulo) to Stop 7 (Plaza de las Flores) ---
-            [36.5316, -6.2945], // Calle San Martín
-            [36.5319, -6.2958], // Calle San Martín
-            [36.5320, -6.2969], // Crossing onto the main street
+            [36.5316, -6.2945], 
+            [36.5319, -6.2958], 
+            [36.5320, -6.2969], 
             [36.5323, -6.2979], // Stop 7: Plaza de las Flores
 
             // =========================================================
-            // TRACING STOPS 7 to 8 (Plaza de las Flores to Mercado Central)
+            // TRACING STOPS 7 to 8 
             // =========================================================
-            [36.5321, -6.2982], // Calle Libertad, corner near the market
+            [36.5321, -6.2982], 
             [36.5318, -6.2983], // Stop 8: Mercado Central
             
             // =========================================================
-            // TRACING STOPS 8 to 9 (Mercado Central to Plaza Mina)
+            // TRACING STOPS 8 to 9 (via 10)
             // =========================================================
-            [36.5325, -6.2989], // Leaving the market area onto main street
-            [36.5331, -6.2984], // Corner onto Calle Sacramento
-            [36.5337, -6.2979], // Intersection
-            [36.5342, -6.2973], // Turning onto Calle Isabel la Católica
+            [36.5325, -6.2989], 
+            [36.5331, -6.2984], 
+            [36.5337, -6.2979], 
+            [36.5342, -6.2973], 
             [36.5352, -6.2969], // Stop 9: Plaza Mina
             
             // =========================================================
-            // TRACING STOPS 9 to 11 (Plaza Mina to Torre Tavira)
-            // We visit Stop 10 (Museo) on the way.
+            // TRACING STOPS 9 to 11 (via 10)
             // =========================================================
-            [36.5352, -6.2965], // Stop 10: Museo de Cádiz (right next to Plaza Mina)
-            [36.5355, -6.2958], // Tracing Calle San José
-            [36.5361, -6.2954], // Corner onto Calle Santiago
+            [36.5352, -6.2965], // Stop 10: Museo de Cádiz 
+            [36.5355, -6.2958], 
+            [36.5361, -6.2954], 
             [36.5367, -6.2950], // Stop 11: Torre Tavira
 
             // =========================================================
-            // TRACING STOPS 11 to 14 (Torre Tavira to Gran Teatro Falla)
-            // We visit Stop 12 (Mentidero) and 13 (Santa Cueva) on the way.
+            // TRACING STOPS 11 to 14 (via 12 and 13)
             // =========================================================
-            [36.5363, -6.2960], // Tracing Calle Sacramento/Cobos
-            [36.5355, -6.2975], // Turning towards San Antonio
-            [36.5354, -6.2990], // Calle San Miguel
+            [36.5363, -6.2960], 
+            [36.5355, -6.2975], 
+            [36.5354, -6.2990], 
             [36.5356, -6.3008], // Stop 12: Plaza del Mentidero
-            [36.5340, -6.3000], // Backtracking/through side streets
+            [36.5340, -6.3000], 
             [36.5336, -6.2953], // Stop 13: Oratorio de la Santa Cueva
             [36.5358, -6.3008], // Stop 14: Gran Teatro Falla
 
             // =========================================================
-            // TRACING STOPS 14 to 19 (Gran Teatro Falla to La Caleta Beach)
-            // Finishing the circuit along the sea walls.
+            // TRACING STOPS 14 to 19 (Along the sea walls)
             // =========================================================
-            [36.5360, -6.3015], // Heading North-West
-            [36.5365, -6.3020], // Intersection with Alameda
-            [36.5370, -6.2983], // Stop 15: Alameda Apodaca (Promenade begins)
-            [36.5377, -6.2992], // Stop 17: Baluarte de la Candelaria (out of order for better path flow)
-            [36.5360, -6.3040], // Stop 16: Parque Genovés (Path through the park)
+            [36.5360, -6.3015], 
+            [36.5365, -6.3020], 
+            [36.5370, -6.2983], // Stop 15: Alameda Apodaca 
+            [36.5377, -6.2992], // Stop 17: Baluarte de la Candelaria 
+            [36.5360, -6.3040], // Stop 16: Parque Genovés 
             [36.5372, -6.3040], // Stop 18: Castillo de Santa Catalina
             [36.5330, -6.3045]  // Stop 19: La Caleta Beach
         ];
         
-        // Note: We no longer need the loop to append points 8-19, as they are now manually traced above.
-        // End of path construction
-
-
         /**
          * Custom function to display modal messages instead of alert()
          */
@@ -290,6 +278,40 @@
         }
         
         /**
+         * Changes the icon of the current target marker and reverts the previous one.
+         */
+        function highlightMapMarker(idToHighlight) {
+            // 1. Revert previous highlighted marker if it exists
+            if (highlightedMarker) {
+                const prevStop = highlightedMarker.id;
+                const markerToRevert = allMarkers.find(m => m.id === prevStop)?.marker;
+                
+                if (markerToRevert) {
+                    const defaultIcon = L.divIcon({
+                        ...defaultIconOptions,
+                        html: `<div>${prevStop}</div>`,
+                    });
+                    markerToRevert.setIcon(defaultIcon);
+                }
+                highlightedMarker = null;
+            }
+
+            // 2. Highlight the new marker if an ID is provided
+            if (idToHighlight) {
+                const newMarkerData = allMarkers.find(m => m.id === idToHighlight);
+                
+                if (newMarkerData) {
+                    const newIcon = L.divIcon({
+                        ...nextStopIconOptions,
+                        html: `<div>${idToHighlight}</div>`,
+                    });
+                    newMarkerData.marker.setIcon(newIcon);
+                    highlightedMarker = newMarkerData;
+                }
+            }
+        }
+        
+        /**
          * Updates the navigation panel with distance and next stop name.
          */
         function updateNavigationPanel(userLat, userLng) {
@@ -297,23 +319,25 @@
             const distanceElement = document.getElementById('next-stop-distance');
             const navPanel = document.getElementById('navigation-panel');
             
-            // Check if tracking is active AND the user wants the panel visible
-            if (locateWatchId !== null && isNavPanelVisible) {
-                navPanel.classList.remove('hidden');
-            } else {
+            // Show the panel in the sidebar as long as tracking is active
+            if (locateWatchId === null) {
                 navPanel.classList.add('hidden');
-                return; // Exit early if panel should be hidden
+                return; 
             }
             
+            navPanel.classList.remove('hidden');
+            navPanel.classList.remove('bg-green-100', 'border-green-600');
+            navPanel.classList.add('bg-red-50', 'border-red-600');
+
+
             // Check if we are past the last stop
             if (currentStopIndex >= stops.length) {
                 nextStopElement.innerText = "Tour Complete!";
                 distanceElement.innerText = "Enjoy your stay in Cádiz!";
-                navPanel.classList.add('bg-green-100'); // Visual cue for completion
-                // Ensure no stop is highlighted
-                document.querySelectorAll('.sidebar-item').forEach(item => {
-                    item.classList.remove('bg-red-100', 'border-red-600');
-                });
+                navPanel.classList.add('bg-green-100', 'border-green-600'); // Visual cue for completion
+                navPanel.classList.remove('bg-red-50', 'border-red-600');
+                highlightSidebarStop(-1); // Clear sidebar highlight
+                highlightMapMarker(null); // Clear map highlight
                 return;
             }
 
@@ -338,10 +362,17 @@
                 showMessageModal("Stop Reached!", `You are within 50 meters of Stop ${nextStop.id}: ${nextStop.name}. Moving to the next stop.`);
                 // Increment and check again on the next location update
                 currentStopIndex++;
+                
+                // If the tour is now complete, update the UI now
+                if (currentStopIndex >= stops.length) {
+                    updateNavigationPanel(userLat, userLng);
+                    return;
+                }
             }
             
-            // Highlight the current target stop in the sidebar
+            // Highlight the current target stop in the sidebar AND on the map
             highlightSidebarStop(nextStop.id);
+            highlightMapMarker(nextStop.id);
         }
 
         /**
@@ -383,7 +414,6 @@
 
             // 4. Attach event listeners
             document.getElementById('locate-button').addEventListener('click', toggleLocationTracking);
-            document.getElementById('nav-toggle-button').addEventListener('click', toggleNavigationPanel);
             
             document.getElementById('modal-close-button').addEventListener('click', () => {
                 document.getElementById('message-modal').classList.remove('flex');
@@ -391,39 +421,6 @@
             });
         }
         
-        /**
-         * Toggles the visibility state of the navigation panel.
-         */
-        function toggleNavigationPanel() {
-            isNavPanelVisible = !isNavPanelVisible;
-            const navPanel = document.getElementById('navigation-panel');
-            const toggleButton = document.getElementById('nav-toggle-button');
-            const toggleIcon = document.getElementById('nav-toggle-icon');
-            
-            if (isNavPanelVisible) {
-                // Panel is ON (visible)
-                toggleButton.classList.add('text-red-600');
-                toggleButton.classList.remove('text-gray-500');
-                // Set icon to 'eye' (visible)
-                toggleIcon.outerHTML = '<svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
-                
-                // If tracking is active, show the panel immediately
-                if (locateWatchId !== null) {
-                    navPanel.classList.remove('hidden');
-                }
-                showMessageModal("Navigation Panel", "Real-time navigation guidance is now visible.");
-            } else {
-                // Panel is OFF (hidden)
-                navPanel.classList.add('hidden');
-                toggleButton.classList.remove('text-red-600');
-                toggleButton.classList.add('text-gray-500');
-                 // Set icon to 'eye-off' (hidden)
-                toggleIcon.outerHTML = '<svg id="nav-toggle-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye-off"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.34-1.65"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
-                showMessageModal("Navigation Panel", "Real-time navigation guidance is now hidden.");
-            }
-        }
-
-
         function onLocationFound(e) {
             const radius = e.coords.accuracy;
             const latlng = [e.coords.latitude, e.coords.longitude];
@@ -461,7 +458,7 @@
                  map.isUserLocating = false;
             }
             
-            // Update the navigation panel with real-time data. Visibility is checked inside this function.
+            // Update the navigation panel with real-time data.
             updateNavigationPanel(e.coords.latitude, e.coords.longitude);
         }
 
@@ -493,7 +490,7 @@
             });
             
             document.getElementById('locate-button').classList.add('text-red-600', 'font-bold');
-            showMessageModal("Location Started", "Tracking your position! Check the top-left corner for navigation guidance.");
+            showMessageModal("Location Started", "Tracking your position! The next stop is now highlighted on the map and in the sidebar.");
         }
         
         function stopLocationTracking() {
@@ -509,8 +506,11 @@
                 map.removeLayer(accuracyCircle);
                 accuracyCircle = null;
             }
+            
+            highlightMapMarker(null); // Clear map highlight
+
             document.getElementById('locate-button').classList.remove('text-red-600', 'font-bold');
-            // Ensure the panel is hidden when tracking stops, regardless of the toggle state
+            // Ensure the panel is hidden when tracking stops
             document.getElementById('navigation-panel').classList.add('hidden'); 
             
             // Remove all sidebar highlights
@@ -538,30 +538,30 @@
             stops.forEach(stop => {
                 const coords = [stop.lat, stop.lng];
                 
-                // --- 1. Create Custom Marker Icon ---
-                const customIcon = L.divIcon({
-                    className: 'tour-marker',
+                // --- 1. Create Custom Marker Icon (Default Red) ---
+                const defaultIcon = L.divIcon({
+                    ...defaultIconOptions,
                     html: `<div>${stop.id}</div>`,
-                    iconSize: [25, 25],
-                    iconAnchor: [12.5, 25]
                 });
 
                 // --- 2. Create Marker and Add to Map ---
                 const marker = L.marker(coords, { 
-                    icon: customIcon
+                    icon: defaultIcon
                 }).addTo(map);
+
+                // Store marker reference
+                allMarkers.push({ id: stop.id, marker: marker }); 
 
                 // --- 3. Add Popup Content ---
                 const popupContent = `
                     <div class="font-bold text-red-600 text-lg mb-1">STOP ${stop.id}: ${stop.name}</div>
                     <p class="text-gray-700 text-sm">${stop.description}</p>
                 `;
-                // Leaflet default settings ensure closeButton: true (visible) and only one popup is open
                 marker.bindPopup(popupContent, {
                     offset: L.point(0, -10)
                 });
                 
-                // Add click listener to marker to focus on it
+                // Add click listener to marker
                 marker.on('click', () => {
                     handleStopClick(stop.id, marker);
                 });
@@ -607,15 +607,16 @@
                 // Pan map to the marker location
                 map.flyTo(marker.getLatLng(), 17, { duration: 1.0 });
 
-                // Open the marker's popup (Leaflet automatically closes others)
+                // Open the marker's popup
                 marker.openPopup();
                 
                 // Optional: When clicking on a stop, update the currentStopIndex 
-                // to start navigating from the *next* stop in sequence.
                 if (id < stops.length) {
                     currentStopIndex = id; // id is 1-indexed, index is 0-indexed
                     if (locateWatchId !== null) {
                          showMessageModal("Navigation Updated", `Now navigating toward STOP ${currentStopIndex + 1}.`);
+                         // Update the map marker immediately if tracking is active
+                         highlightMapMarker(stops[currentStopIndex].id);
                     }
                 }
 
