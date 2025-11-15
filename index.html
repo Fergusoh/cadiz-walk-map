@@ -6,6 +6,12 @@
     <title>Cádiz Old Town Walking Route</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Load Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <!-- NEW: Load Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+
     <style>
         /* Custom styles for Leaflet map display */
         #map {
@@ -57,30 +63,36 @@
         #locate-button:hover {
             background-color: #FEE2E2;
         }
+
+        /* Hide the default routing instruction panel, as the sidebar is sufficient */
+        .leaflet-routing-container {
+            display: none;
+        }
+        /* Style the route line */
+        .leaflet-routing-alt {
+            color: #EF4444 !important; /* Primary tour color */
+            border-radius: 5px;
+        }
     </style>
-    <!-- Load Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 </head>
 
 <body class="bg-gray-100 p-4">
     <div id="app" class="flex flex-col lg:flex-row h-full lg:h-[calc(100vh-2rem)] max-w-7xl mx-auto space-y-4 lg:space-y-0 lg:space-x-4">
         
         <!-- Sidebar for Stops List -->
-        <!-- FIX: Added h-64 to constrain the height on mobile, making it scrollable. -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops | Approx 11 km | Tap a stop to jump to its location on the map.</p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | Street-level routing enabled. Tap a stop to jump to its location on the map.</p>
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
         </div>
 
         <!-- Map Container -->
-        <!-- FIX: Changed h-[60vh] to h-96 for a more consistent and predictable mobile height. -->
         <div class="w-full lg:w-2/3 shadow-xl rounded-xl order-1 lg:order-2 h-96 lg:h-full relative">
             <div id="map"></div>
             
-            <!-- NEW: Locate Me Button -->
+            <!-- Locate Me Button -->
             <button id="locate-button" aria-label="Locate Me on Map">
                 <!-- Lucide Icon for Compass/Target -->
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate">
@@ -88,7 +100,7 @@
                 </svg>
             </button>
             
-            <!-- NEW: Custom Modal for messages -->
+            <!-- Custom Modal for messages -->
             <div id="message-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden items-center justify-center p-4 z-[2000]">
                 <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm w-full">
                     <h3 id="modal-title" class="text-xl font-bold mb-2"></h3>
@@ -102,6 +114,8 @@
 
     <!-- Load Leaflet JavaScript here (without integrity checks) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- NEW: Load Leaflet Routing Machine JS -->
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
     
     <script>
         // Data for all 19 stops (Verified coordinates from the last response)
@@ -132,6 +146,7 @@
         let locationMarker = null;
         let accuracyCircle = null;
         let locateWatchId = null; // To store the ID for position watching
+        let routerControl = null; // NEW: Global variable for the routing control
 
         /**
          * Custom function to display modal messages instead of alert()
@@ -287,28 +302,31 @@
 
 
         /**
-         * Adds markers and the route line to the map, and populates the sidebar.
+         * Adds markers, draws the routed line, and populates the sidebar.
          */
         function addStopsToMapAndSidebar() {
-            const coordinates = [];
             const stopsList = document.getElementById('stops-list');
-            const markers = [];
+            const waypoints = []; // Array to hold L.LatLng objects for routing
 
             stops.forEach(stop => {
                 const coords = [stop.lat, stop.lng];
-                coordinates.push(coords); // Store coordinates for the polyline
+                // Add coordinates as L.LatLng for the router
+                waypoints.push(L.latLng(coords[0], coords[1]));
 
                 // --- 1. Create Custom Marker Icon ---
                 const customIcon = L.divIcon({
                     className: 'tour-marker',
                     html: `<div>${stop.id}</div>`,
                     iconSize: [25, 25],
-                    iconAnchor: [12.5, 25] // Center the icon
+                    iconAnchor: [12.5, 25]
                 });
 
-                // --- 2. Add Marker to Map ---
-                const marker = L.marker(coords, { icon: customIcon }).addTo(map);
-                markers.push(marker);
+                // --- 2. Create Placeholder Marker (The router adds its own markers) ---
+                // We create a temporary invisible marker just to bind the popup easily
+                const marker = L.marker(coords, { 
+                    icon: customIcon,
+                    opacity: 0 // Hide the default marker, the router will use our custom icon
+                }).addTo(map);
 
                 // --- 3. Add Popup Content ---
                 const popupContent = `
@@ -348,15 +366,32 @@
                 stopsList.appendChild(listItem);
             });
 
-            // --- 5. Draw Polyline Route ---
-            L.polyline(coordinates, {
-                color: '#EF4444', // Red line for the route
-                weight: 4,
-                opacity: 0.7
+            // --- 5. Draw the REAL Route using Leaflet Routing Machine ---
+            routerControl = L.Routing.control({
+                waypoints: waypoints,
+                routeWhileDragging: false, // Prevents recalculating constantly
+                router: L.Routing.osrmv1({ 
+                    serviceUrl: 'https://router.project-osrm.org/route/v1', 
+                    profile: 'foot' // Set profile to walking
+                }),
+                lineOptions: {
+                    styles: [{ color: '#EF4444', opacity: 0.8, weight: 6, className: 'leaflet-routing-alt' }]
+                },
+                // Custom creation of markers to ensure our numbered style is used
+                createMarker: function(i, waypoint, n) {
+                    return L.marker(waypoint.latLng, {
+                        icon: L.divIcon({
+                            className: 'tour-marker',
+                            html: `<div>${i + 1}</div>`,
+                            iconSize: [25, 25],
+                            iconAnchor: [12.5, 25]
+                        })
+                    }).bindPopup(`<b>Stop ${i + 1}:</b> ${stops[i].name}`);
+                },
+                show: false, // Hide the instructions panel
+                addWaypoints: false, // Prevent users from dragging or adding waypoints
+                fitSelectedRoutes: true // Fit the map to the route on load
             }).addTo(map);
-
-            // Fit the map to show all markers
-            map.fitBounds(L.latLngBounds(coordinates), { padding: [50, 50] });
 
             // Helper function to handle clicks (from map marker or sidebar)
             function handleStopClick(id, marker) {
@@ -379,11 +414,12 @@
         }
         
         /**
-         * FIX: Implements active polling to ensure Leaflet (L) is fully loaded
+         * Implements active polling to ensure Leaflet (L) is fully loaded
          * before attempting to call L.map().
          */
         function checkLeafletReady() {
-            if (typeof L !== 'undefined' && L.map) {
+            // Check for both L and the Routing Machine (L.Routing)
+            if (typeof L !== 'undefined' && L.map && L.Routing) {
                 try {
                     initMap();
                     addStopsToMapAndSidebar();
@@ -391,7 +427,7 @@
                     console.error("Map initialization failed:", error);
                 }
             } else {
-                // Poll again in 10ms if L is not ready
+                // Poll again in 10ms if L or L.Routing is not ready
                 setTimeout(checkLeafletReady, 10);
             }
         }
