@@ -88,6 +88,11 @@
             opacity: 0.8; 
             weight: 6;
         }
+        
+        /* Ensure the sidebar highlight includes the entire block */
+        .sidebar-item.bg-red-100 {
+            padding-bottom: 0.75rem; /* Adjust padding when highlighted to account for guidance info */
+        }
     </style>
 </head>
 
@@ -99,15 +104,10 @@
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
             <p class="text-sm text-gray-500 mb-4">19 stops | Start tracking your location for real-time guidance!</p>
             
-            <!-- Dynamic Navigation Panel (MOVED to Sidebar) -->
-            <div id="navigation-panel" class="p-3 bg-red-50 border-l-4 border-red-600 rounded-r-lg mb-4 shadow-sm hidden transition-all">
-                <p class="text-xs font-medium text-gray-500 mb-1 uppercase">Next Stop Guidance</p>
-                <h3 id="next-stop-name" class="text-lg font-bold text-red-700 truncate">--</h3>
-                <p id="next-stop-distance" class="text-sm font-semibold text-gray-700">Distance: --</p>
-            </div>
+            <!-- Removed Dynamic Navigation Panel -->
             
             <div id="stops-list" class="space-y-2">
-                <!-- Stop items will be injected here -->
+                <!-- Stop items will be injected here. Guidance will be injected into the next stop's item. -->
             </div>
         </div>
 
@@ -173,7 +173,7 @@
         // Index of the NEXT stop the user should be heading towards (0-indexed)
         let currentStopIndex = 1; 
         
-        // NEW State for managing marker icon changes
+        // State for managing marker icon changes
         let allMarkers = []; // Array to store all Leaflet marker instances ({ id, marker })
         let highlightedMarker = null; // Stores the currently highlighted Leaflet marker instance
         
@@ -312,32 +312,33 @@
         }
         
         /**
-         * Updates the navigation panel with distance and next stop name.
+         * Updates the guidance information (distance) directly within the target sidebar item.
+         * This replaces the old dedicated navigation panel.
          */
-        function updateNavigationPanel(userLat, userLng) {
-            const nextStopElement = document.getElementById('next-stop-name');
-            const distanceElement = document.getElementById('next-stop-distance');
-            const navPanel = document.getElementById('navigation-panel');
+        function updateGuidanceInSidebar(userLat, userLng) {
             
-            // Show the panel in the sidebar as long as tracking is active
-            if (locateWatchId === null) {
-                navPanel.classList.add('hidden');
-                return; 
-            }
+            // 1. Clear all previous guidance information from all items
+            document.querySelectorAll('.guidance-info').forEach(el => el.remove());
             
-            navPanel.classList.remove('hidden');
-            navPanel.classList.remove('bg-green-100', 'border-green-600');
-            navPanel.classList.add('bg-red-50', 'border-red-600');
+            // If tracking is off, or stops are complete, exit here
+            if (locateWatchId === null) return;
+            
 
-
-            // Check if we are past the last stop
+            // 2. Check for Tour Completion
             if (currentStopIndex >= stops.length) {
-                nextStopElement.innerText = "Tour Complete!";
-                distanceElement.innerText = "Enjoy your stay in Cádiz!";
-                navPanel.classList.add('bg-green-100', 'border-green-600'); // Visual cue for completion
-                navPanel.classList.remove('bg-red-50', 'border-red-600');
-                highlightSidebarStop(-1); // Clear sidebar highlight
-                highlightMapMarker(null); // Clear map highlight
+                const lastStop = stops[stops.length - 1];
+                const lastItem = document.getElementById(`stop-${lastStop.id}`);
+                
+                if (lastItem) {
+                     // Add completion message to the final stop item
+                     const completeMsg = document.createElement('div');
+                     completeMsg.className = 'guidance-info pt-1 mt-2 border-t border-green-400';
+                     completeMsg.innerHTML = '<p class="text-sm font-bold text-green-700">✨ Tour Complete! Enjoy your stay.</p>';
+                     lastItem.appendChild(completeMsg);
+                     
+                     highlightSidebarStop(-1); // Clear sidebar highlight
+                     highlightMapMarker(null); // Clear map highlight
+                }
                 return;
             }
 
@@ -345,32 +346,40 @@
             const userLatLng = L.latLng(userLat, userLng);
             const stopLatLng = L.latLng(nextStop.lat, nextStop.lng);
             
-            // Calculate distance using Leaflet's built-in function (in meters)
+            // Calculate distance in meters
             const distance = userLatLng.distanceTo(stopLatLng); 
 
-            nextStopElement.innerText = `STOP ${nextStop.id}: ${nextStop.name}`;
-            
-            // Update distance display
+            let distanceText;
             if (distance < 1000) {
-                distanceElement.innerText = `Distance: ${Math.round(distance)} meters`;
+                distanceText = `${Math.round(distance)} meters`;
             } else {
-                distanceElement.innerText = `Distance: ${(distance / 1000).toFixed(2)} km`;
+                distanceText = `${(distance / 1000).toFixed(2)} km`;
             }
 
             // --- Auto-Advance Logic (Within 50 meters) ---
             if (distance < 50) {
                 showMessageModal("Stop Reached!", `You are within 50 meters of Stop ${nextStop.id}: ${nextStop.name}. Moving to the next stop.`);
-                // Increment and check again on the next location update
                 currentStopIndex++;
                 
-                // If the tour is now complete, update the UI now
-                if (currentStopIndex >= stops.length) {
-                    updateNavigationPanel(userLat, userLng);
-                    return;
-                }
+                // Recursively call to update the UI for the new target immediately
+                updateGuidanceInSidebar(userLat, userLng);
+                return;
+            }
+
+            // 3. Inject Guidance into the Target Sidebar Item
+            const itemToUpdate = document.getElementById(`stop-${nextStop.id}`);
+            if (itemToUpdate) {
+                const guidanceDiv = document.createElement('div');
+                guidanceDiv.className = 'guidance-info pt-1 mt-2 border-t border-red-300';
+                guidanceDiv.innerHTML = `
+                    <p class="text-xs font-medium text-gray-500 uppercase">Current Target:</p>
+                    <p class="text-sm font-bold text-red-700">Distance: ${distanceText}</p>
+                `;
+                
+                itemToUpdate.appendChild(guidanceDiv);
             }
             
-            // Highlight the current target stop in the sidebar AND on the map
+            // 4. Highlight the current target stop in the sidebar AND on the map
             highlightSidebarStop(nextStop.id);
             highlightMapMarker(nextStop.id);
         }
@@ -458,8 +467,8 @@
                  map.isUserLocating = false;
             }
             
-            // Update the navigation panel with real-time data.
-            updateNavigationPanel(e.coords.latitude, e.coords.longitude);
+            // Update the sidebar guidance with real-time data.
+            updateGuidanceInSidebar(e.coords.latitude, e.coords.longitude);
         }
 
         function onLocationError(e) {
@@ -508,10 +517,11 @@
             }
             
             highlightMapMarker(null); // Clear map highlight
+            
+            // Clear all injected guidance text when tracking stops
+            document.querySelectorAll('.guidance-info').forEach(el => el.remove());
 
             document.getElementById('locate-button').classList.remove('text-red-600', 'font-bold');
-            // Ensure the panel is hidden when tracking stops
-            document.getElementById('navigation-panel').classList.add('hidden'); 
             
             // Remove all sidebar highlights
             document.querySelectorAll('.sidebar-item').forEach(item => {
@@ -570,6 +580,7 @@
                 // --- 4. Create Sidebar Item ---
                 const listItem = document.createElement('div');
                 listItem.id = `stop-${stop.id}`;
+                // Note: The `pb-3` padding here is default. It is dynamically adjusted via CSS when highlighted
                 listItem.className = 'sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400';
                 listItem.innerHTML = `
                     <div class="flex items-center space-x-3">
@@ -615,8 +626,8 @@
                     currentStopIndex = id; // id is 1-indexed, index is 0-indexed
                     if (locateWatchId !== null) {
                          showMessageModal("Navigation Updated", `Now navigating toward STOP ${currentStopIndex + 1}.`);
-                         // Update the map marker immediately if tracking is active
-                         highlightMapMarker(stops[currentStopIndex].id);
+                         // Update the map marker and guidance immediately if tracking is active
+                         updateGuidanceInSidebar(map.getCenter().lat, map.getCenter().lng);
                     }
                 }
 
