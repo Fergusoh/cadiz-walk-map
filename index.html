@@ -41,6 +41,22 @@
         .sidebar-item:hover {
             background-color: #FEF2F2; /* Light red on hover */
         }
+        /* Style for the locate button */
+        #locate-button {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            padding: 0.5rem;
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #locate-button:hover {
+            background-color: #FEE2E2;
+        }
     </style>
     <!-- Load Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -61,8 +77,25 @@
 
         <!-- Map Container -->
         <!-- FIX: Changed h-[60vh] to h-96 for a more consistent and predictable mobile height. -->
-        <div class="w-full lg:w-2/3 shadow-xl rounded-xl order-1 lg:order-2 h-96 lg:h-full">
+        <div class="w-full lg:w-2/3 shadow-xl rounded-xl order-1 lg:order-2 h-96 lg:h-full relative">
             <div id="map"></div>
+            
+            <!-- NEW: Locate Me Button -->
+            <button id="locate-button" aria-label="Locate Me on Map">
+                <!-- Lucide Icon for Compass/Target -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate">
+                    <line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/>
+                </svg>
+            </button>
+            
+            <!-- NEW: Custom Modal for messages -->
+            <div id="message-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden items-center justify-center p-4 z-[2000]">
+                <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm w-full">
+                    <h3 id="modal-title" class="text-xl font-bold mb-2"></h3>
+                    <p id="modal-text" class="text-gray-700 mb-4"></p>
+                    <button id="modal-close-button" class="w-full bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition">Close</button>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -96,6 +129,19 @@
 
         // Global map variable
         let map;
+        let locationMarker = null;
+        let accuracyCircle = null;
+        let locateWatchId = null; // To store the ID for position watching
+
+        /**
+         * Custom function to display modal messages instead of alert()
+         */
+        function showMessageModal(title, text) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-text').innerText = text;
+            document.getElementById('message-modal').classList.remove('hidden');
+            document.getElementById('message-modal').classList.add('flex');
+        }
 
         /**
          * Initializes the Leaflet map centered on the starting point of the tour.
@@ -117,7 +163,128 @@
 
             // 3. Add Custom Zoom Control
             L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // 4. Attach event listener to the Locate button
+            document.getElementById('locate-button').addEventListener('click', toggleLocationTracking);
+            document.getElementById('modal-close-button').addEventListener('click', () => {
+                document.getElementById('message-modal').classList.remove('flex');
+                document.getElementById('message-modal').classList.add('hidden');
+            });
         }
+
+        /**
+         * Handles location success updates.
+         */
+        function onLocationFound(e) {
+            const radius = e.coords.accuracy;
+            const latlng = [e.coords.latitude, e.coords.longitude];
+
+            // Update marker position
+            if (locationMarker) {
+                locationMarker.setLatLng(latlng);
+            } else {
+                // Initial creation of the marker (blue dot)
+                locationMarker = L.circleMarker(latlng, {
+                    radius: 8,
+                    color: '#1D4ED8', // Blue
+                    fillColor: '#3B82F6', // Lighter blue fill
+                    fillOpacity: 1,
+                    stroke: true
+                }).addTo(map)
+                .bindPopup("You are here (Accuracy: " + Math.round(radius) + " meters)").openPopup();
+            }
+
+            // Update accuracy circle
+            if (accuracyCircle) {
+                accuracyCircle.setLatLng(latlng);
+                accuracyCircle.setRadius(radius);
+            } else {
+                // Initial creation of the accuracy circle
+                accuracyCircle = L.circle(latlng, radius, {
+                    color: '#3B82F6',
+                    fillColor: '#60A5FA',
+                    fillOpacity: 0.2,
+                    weight: 2,
+                    opacity: 0.5
+                }).addTo(map);
+            }
+
+            // Center map on user's location only on the first update or on button press
+            if (map.isUserLocating) {
+                 map.flyTo(latlng, Math.min(17, map.getZoom()), { duration: 1.5 });
+                 map.isUserLocating = false; // Reset after first centering
+            }
+        }
+
+        /**
+         * Handles location errors.
+         */
+        function onLocationError(e) {
+            let errorMessage = "Could not retrieve location.";
+            if (e.code === 1) {
+                errorMessage = "Location access denied. Please allow location services for this page.";
+            } else if (e.code === 3) {
+                 errorMessage = "Location timeout. Please ensure you have a clear GPS signal.";
+            }
+            showMessageModal("Location Error", errorMessage);
+            console.error(e);
+            stopLocationTracking(); // Stop tracking on error
+        }
+
+        /**
+         * Starts continuous location tracking.
+         */
+        function startLocationTracking() {
+            if (!("geolocation" in navigator)) {
+                showMessageModal("Location Not Supported", "Geolocation is not supported by your browser.");
+                return;
+            }
+            
+            // Set flag to true to center map on first successful location
+            map.isUserLocating = true; 
+            
+            // Start watching position
+            locateWatchId = navigator.geolocation.watchPosition(onLocationFound, onLocationError, {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            });
+            
+            document.getElementById('locate-button').classList.add('text-red-600', 'font-bold');
+            showMessageModal("Location Started", "Tracking your position... your current location will be shown as a blue circle.");
+        }
+        
+        /**
+         * Stops continuous location tracking.
+         */
+        function stopLocationTracking() {
+            if (locateWatchId !== null) {
+                navigator.geolocation.clearWatch(locateWatchId);
+                locateWatchId = null;
+            }
+            if (locationMarker) {
+                map.removeLayer(locationMarker);
+                locationMarker = null;
+            }
+            if (accuracyCircle) {
+                map.removeLayer(accuracyCircle);
+                accuracyCircle = null;
+            }
+            document.getElementById('locate-button').classList.remove('text-red-600', 'font-bold');
+            showMessageModal("Location Stopped", "Location tracking has been turned off.");
+        }
+
+        /**
+         * Toggles location tracking on and off.
+         */
+        function toggleLocationTracking() {
+            if (locateWatchId === null) {
+                startLocationTracking();
+            } else {
+                stopLocationTracking();
+            }
+        }
+
 
         /**
          * Adds markers and the route line to the map, and populates the sidebar.
@@ -213,8 +380,7 @@
         
         /**
          * FIX: Implements active polling to ensure Leaflet (L) is fully loaded
-         * before attempting to call L.map(). This is the most reliable fix for 
-         * persistent script dependency timing issues.
+         * before attempting to call L.map().
          */
         function checkLeafletReady() {
             if (typeof L !== 'undefined' && L.map) {
