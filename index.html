@@ -46,6 +46,7 @@
         .sidebar-item:hover {
             background-color: #FEF2F2; /* Light red on hover */
         }
+        
         /* Style for the locate button */
         #locate-button {
             position: absolute;
@@ -61,6 +62,20 @@
         }
         #locate-button:hover {
             background-color: #FEE2E2;
+        }
+        
+        /* Style for the navigation panel */
+        #navigation-panel {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            z-index: 1000;
+            background-color: white;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            font-family: 'Inter', sans-serif;
+            min-width: 200px;
         }
 
         /* Style the polyline path */
@@ -78,7 +93,7 @@
         <!-- Sidebar for Stops List -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-7 is now manually traced along the streets. </p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-7 is manually traced. Start tracking your location for real-time guidance!</p>
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
@@ -88,6 +103,13 @@
         <div class="w-full lg:w-2/3 shadow-xl rounded-xl order-1 lg:order-2 h-96 lg:h-full relative">
             <div id="map"></div>
             
+            <!-- Dynamic Navigation Panel -->
+            <div id="navigation-panel" class="hidden">
+                <p class="text-xs font-medium text-gray-500 mb-1 uppercase">Next Stop</p>
+                <h3 id="next-stop-name" class="text-lg font-bold text-red-600 truncate">--</h3>
+                <p id="next-stop-distance" class="text-sm font-semibold text-gray-700">Distance: --</p>
+            </div>
+
             <!-- Locate Me Button -->
             <button id="locate-button" aria-label="Locate Me on Map">
                 <!-- Lucide Icon for Compass/Target -->
@@ -135,11 +157,14 @@
             { id: 19, name: "La Caleta Beach", lat: 36.5330, lng: -6.3045, description: "Small, sheltered beach with fishing boats and the historic Balneario. Magical at sunset." }
         ];
 
-        // Global map variable
+        // Global map variable and state
         let map;
         let locationMarker = null;
         let accuracyCircle = null;
-        let locateWatchId = null; // To store the ID for position watching
+        let locateWatchId = null; 
+        // Index of the NEXT stop the user should be heading towards (0-indexed)
+        let currentStopIndex = 1; 
+
         
         // --- Manual Path Tracing Coordinates ---
         // This array holds the final coordinates for the polyline, including intermediate points 
@@ -181,15 +206,55 @@
             [36.5323, -6.2979], // Stop 7: Plaza de las Flores
 
             // =========================================================
-            // STRAIGHT LINE SEGMENT: STOPS 8 to 19 
-            // Add manual intermediates here to complete the route tracing!
+            // TRACING STOPS 7 to 8 (Plaza de las Flores to Mercado Central)
             // =========================================================
+            [36.5321, -6.2982], // Calle Libertad, corner near the market
+            [36.5318, -6.2983], // Stop 8: Mercado Central
+            
+            // =========================================================
+            // TRACING STOPS 8 to 9 (Mercado Central to Plaza Mina)
+            // =========================================================
+            [36.5325, -6.2989], // Leaving the market area onto main street
+            [36.5331, -6.2984], // Corner onto Calle Sacramento
+            [36.5337, -6.2979], // Intersection
+            [36.5342, -6.2973], // Turning onto Calle Isabel la Católica
+            [36.5352, -6.2969], // Stop 9: Plaza Mina
+            
+            // =========================================================
+            // TRACING STOPS 9 to 11 (Plaza Mina to Torre Tavira)
+            // We visit Stop 10 (Museo) on the way.
+            // =========================================================
+            [36.5352, -6.2965], // Stop 10: Museo de Cádiz (right next to Plaza Mina)
+            [36.5355, -6.2958], // Tracing Calle San José
+            [36.5361, -6.2954], // Corner onto Calle Santiago
+            [36.5367, -6.2950], // Stop 11: Torre Tavira
+
+            // =========================================================
+            // TRACING STOPS 11 to 14 (Torre Tavira to Gran Teatro Falla)
+            // We visit Stop 12 (Mentidero) and 13 (Santa Cueva) on the way.
+            // =========================================================
+            [36.5363, -6.2960], // Tracing Calle Sacramento/Cobos
+            [36.5355, -6.2975], // Turning towards San Antonio
+            [36.5354, -6.2990], // Calle San Miguel
+            [36.5356, -6.3008], // Stop 12: Plaza del Mentidero
+            [36.5340, -6.3000], // Backtracking/through side streets
+            [36.5336, -6.2953], // Stop 13: Oratorio de la Santa Cueva
+            [36.5358, -6.3008], // Stop 14: Gran Teatro Falla
+
+            // =========================================================
+            // TRACING STOPS 14 to 19 (Gran Teatro Falla to La Caleta Beach)
+            // Finishing the circuit along the sea walls.
+            // =========================================================
+            [36.5360, -6.3015], // Heading North-West
+            [36.5365, -6.3020], // Intersection with Alameda
+            [36.5370, -6.2983], // Stop 15: Alameda Apodaca (Promenade begins)
+            [36.5377, -6.2992], // Stop 17: Baluarte de la Candelaria (out of order for better path flow)
+            [36.5360, -6.3040], // Stop 16: Parque Genovés (Path through the park)
+            [36.5372, -6.3040], // Stop 18: Castillo de Santa Catalina
+            [36.5330, -6.3045]  // Stop 19: La Caleta Beach
         ];
         
-        // Append the coordinates for stops 8 through 19 (indices 7 through 18)
-        for (let i = 7; i < stops.length; i++) {
-            detailedCoords.push([stops[i].lat, stops[i].lng]);
-        }
+        // Note: We no longer need the loop to append points 8-19, as they are now manually traced above.
         // End of path construction
 
 
@@ -202,6 +267,72 @@
             document.getElementById('message-modal').classList.remove('hidden');
             document.getElementById('message-modal').classList.add('flex');
         }
+        
+        /**
+         * Updates the navigation panel with distance and next stop name.
+         */
+        function updateNavigationPanel(userLat, userLng) {
+            const nextStopElement = document.getElementById('next-stop-name');
+            const distanceElement = document.getElementById('next-stop-distance');
+            const navPanel = document.getElementById('navigation-panel');
+            
+            // Show the panel when location is active
+            navPanel.classList.remove('hidden');
+            
+            // Check if we are past the last stop
+            if (currentStopIndex >= stops.length) {
+                nextStopElement.innerText = "Tour Complete!";
+                distanceElement.innerText = "Enjoy your stay in Cádiz!";
+                navPanel.classList.add('bg-green-100'); // Visual cue for completion
+                // Ensure no stop is highlighted
+                document.querySelectorAll('.sidebar-item').forEach(item => {
+                    item.classList.remove('bg-red-100', 'border-red-600');
+                });
+                return;
+            }
+
+            const nextStop = stops[currentStopIndex];
+            const userLatLng = L.latLng(userLat, userLng);
+            const stopLatLng = L.latLng(nextStop.lat, nextStop.lng);
+            
+            // Calculate distance using Leaflet's built-in function (in meters)
+            const distance = userLatLng.distanceTo(stopLatLng); 
+
+            nextStopElement.innerText = `STOP ${nextStop.id}: ${nextStop.name}`;
+            
+            // Update distance display
+            if (distance < 1000) {
+                distanceElement.innerText = `Distance: ${Math.round(distance)} meters`;
+            } else {
+                distanceElement.innerText = `Distance: ${(distance / 1000).toFixed(2)} km`;
+            }
+
+            // --- Auto-Advance Logic (Within 50 meters) ---
+            if (distance < 50) {
+                showMessageModal("Stop Reached!", `You are within 50 meters of Stop ${nextStop.id}: ${nextStop.name}. Moving to the next stop.`);
+                // Increment and check again on the next location update
+                currentStopIndex++;
+            }
+            
+            // Highlight the current target stop in the sidebar
+            highlightSidebarStop(nextStop.id);
+        }
+
+        /**
+         * Highlights the target stop in the sidebar and scrolls to it.
+         */
+        function highlightSidebarStop(id) {
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('bg-red-100', 'border-red-600');
+            });
+            const itemToHighlight = document.getElementById(`stop-${id}`);
+            if (itemToHighlight) {
+                 itemToHighlight.classList.add('bg-red-100', 'border-red-600');
+                 // Scroll the sidebar to the highlighted item
+                 itemToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
 
         /**
          * Initializes the Leaflet map centered on the starting point of the tour.
@@ -213,7 +344,7 @@
             map = L.map('map', {
                 center: startCoords,
                 zoom: 16,
-                zoomControl: false // We will add a custom one later
+                zoomControl: false 
             });
 
             // 2. Add Tile Layer (OpenStreetMap)
@@ -224,7 +355,7 @@
             // 3. Add Custom Zoom Control
             L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-            // 4. Attach event listener to the Locate button
+            // 4. Attach event listeners
             document.getElementById('locate-button').addEventListener('click', toggleLocationTracking);
             document.getElementById('modal-close-button').addEventListener('click', () => {
                 document.getElementById('message-modal').classList.remove('flex');
@@ -232,11 +363,11 @@
             });
         }
 
-        // Location functions (onLocationFound, onLocationError, etc. remain the same)
         function onLocationFound(e) {
             const radius = e.coords.accuracy;
             const latlng = [e.coords.latitude, e.coords.longitude];
 
+            // Update the map marker and accuracy circle
             if (locationMarker) {
                 locationMarker.setLatLng(latlng);
             } else {
@@ -247,7 +378,7 @@
                     fillOpacity: 1,
                     stroke: true
                 }).addTo(map)
-                .bindPopup("You are here (Accuracy: " + Math.round(radius) + " meters)").openPopup();
+                .bindPopup(`You are here (Accuracy: ${Math.round(radius)} m)`).openPopup();
             }
 
             if (accuracyCircle) {
@@ -264,9 +395,13 @@
             }
 
             if (map.isUserLocating) {
+                 // Only pan/zoom when tracking is first started
                  map.flyTo(latlng, Math.min(17, map.getZoom()), { duration: 1.5 });
                  map.isUserLocating = false;
             }
+            
+            // NEW: Update the navigation panel with real-time data
+            updateNavigationPanel(e.coords.latitude, e.coords.longitude);
         }
 
         function onLocationError(e) {
@@ -288,6 +423,7 @@
             }
             
             map.isUserLocating = true; 
+            currentStopIndex = 1; // Always start tracking from Stop 2 (index 1)
             
             locateWatchId = navigator.geolocation.watchPosition(onLocationFound, onLocationError, {
                 enableHighAccuracy: true,
@@ -296,7 +432,7 @@
             });
             
             document.getElementById('locate-button').classList.add('text-red-600', 'font-bold');
-            showMessageModal("Location Started", "Tracking your position... your current location will be shown as a blue circle.");
+            showMessageModal("Location Started", "Tracking your position! Check the top-left corner for navigation guidance.");
         }
         
         function stopLocationTracking() {
@@ -313,6 +449,11 @@
                 accuracyCircle = null;
             }
             document.getElementById('locate-button').classList.remove('text-red-600', 'font-bold');
+            document.getElementById('navigation-panel').classList.add('hidden');
+            // Remove all sidebar highlights
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('bg-red-100', 'border-red-600');
+            });
             showMessageModal("Location Stopped", "Location tracking has been turned off.");
         }
 
@@ -326,16 +467,14 @@
 
 
         /**
-         * Adds markers, draws the simple polyline line, and populates the sidebar.
+         * Adds markers, draws the polyline line, and populates the sidebar.
          */
         function addStopsToMapAndSidebar() {
             const stopsList = document.getElementById('stops-list');
-            // allCoords array replaced by detailedCoords defined above
 
             stops.forEach(stop => {
                 const coords = [stop.lat, stop.lng];
-                // Note: The polyline now uses detailedCoords, but the markers use the original stop coordinates.
-
+                
                 // --- 1. Create Custom Marker Icon ---
                 const customIcon = L.divIcon({
                     className: 'tour-marker',
@@ -390,12 +529,11 @@
 
             // --- 5. Draw the MANUAL Polyline connecting all points ---
             L.polyline(detailedCoords, {
-                className: 'tour-path' // Uses the style defined in the <style> block
+                className: 'tour-path' 
             }).addTo(map);
 
 
             // Fit map bounds to encompass all points
-            // Use the main stop coordinates for bounding to ensure map is centered correctly on POIs
             const mainStopCoords = stops.map(stop => [stop.lat, stop.lng]);
             const bounds = L.latLngBounds(mainStopCoords);
             map.fitBounds(bounds, { padding: [50, 50] });
@@ -408,25 +546,25 @@
 
                 // Open the marker's popup
                 marker.openPopup();
+                
+                // Optional: When clicking on a stop, update the currentStopIndex 
+                // to start navigating from the *next* stop in sequence.
+                if (id < stops.length) {
+                    currentStopIndex = id; // id is 1-indexed, index is 0-indexed
+                    if (locateWatchId !== null) {
+                         showMessageModal("Navigation Updated", `Now navigating toward STOP ${currentStopIndex + 1}.`);
+                    }
+                }
 
-                // Highlight the corresponding sidebar item
-                document.querySelectorAll('.sidebar-item').forEach(item => {
-                    item.classList.remove('bg-red-100', 'border-red-600');
-                });
-                const clickedItem = document.getElementById(`stop-${id}`);
-                clickedItem.classList.add('bg-red-100', 'border-red-600');
-
-                // Scroll the sidebar to the highlighted item
-                clickedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Highlight the stop in the sidebar
+                highlightSidebarStop(id);
             }
         }
         
         /**
-         * Implements active polling to ensure Leaflet (L) is fully loaded
-         * before attempting to call L.map().
+         * Implements active polling to ensure Leaflet (L) is fully loaded.
          */
         function checkLeafletReady() {
-            // Check only for Leaflet (L)
             if (typeof L !== 'undefined' && L.map) {
                 try {
                     initMap();
@@ -435,12 +573,10 @@
                     console.error("Map initialization failed:", error);
                 }
             } else {
-                // Poll again in 10ms if L is not ready
                 setTimeout(checkLeafletReady, 10);
             }
         }
 
-        // Start the polling once the entire script block is executed
         checkLeafletReady();
 
     </script>
