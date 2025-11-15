@@ -9,8 +9,7 @@
     
     <!-- Load Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <!-- Load Leaflet Routing Machine CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <!-- Leaflet Routing Machine CSS removed as routing is now a simple polyline -->
 
     <style>
         /* Custom styles for Leaflet map display */
@@ -64,14 +63,11 @@
             background-color: #FEE2E2;
         }
 
-        /* Hide the default routing instruction panel, as the sidebar is sufficient */
-        .leaflet-routing-container {
-            display: none;
-        }
-        /* Style the route line */
-        .leaflet-routing-alt {
-            color: #EF4444 !important; /* Primary tour color */
-            border-radius: 5px;
+        /* Style the polyline path */
+        .tour-path {
+            color: #EF4444; 
+            opacity: 0.8; 
+            weight: 6;
         }
     </style>
 </head>
@@ -82,7 +78,7 @@
         <!-- Sidebar for Stops List -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops | Route segmented for stable, street-level navigation.</p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-5 is now manually traced along the streets. </p>
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
@@ -114,11 +110,9 @@
 
     <!-- Load Leaflet JavaScript here (without integrity checks) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Load Leaflet Routing Machine JS -->
-    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
     
     <script>
-        // Data for all 19 stops (reverted back to the full list)
+        // Data for all 19 stops
         const stops = [
             { id: 1, name: "Plaza de San Juan de Dios", lat: 36.5303, lng: -6.2927, description: "City hall, fountains, palms — Cádiz’s traditional civic heart and perfect starting point." },
             { id: 2, name: "Arco de la Rosa (Medieval Gate)", lat: 36.5293, lng: -6.2943, description: "One of the original medieval gateways into Cádiz; connects Cathedral square to the old walls." },
@@ -146,8 +140,47 @@
         let locationMarker = null;
         let accuracyCircle = null;
         let locateWatchId = null; // To store the ID for position watching
-        let routerControl1 = null; // Router for Segment 1
-        let routerControl2 = null; // Router for Segment 2
+        
+        // --- Manual Path Tracing Coordinates ---
+        // This array will hold the final coordinates for the polyline, including intermediates.
+        const detailedCoords = [
+            // =========================================================
+            // MANUALLY TRACED SEGMENT: STOPS 1 to 5
+            // This segment follows the streets (e.g., Calle Plocia, Barrio del Pópulo)
+            // =========================================================
+            
+            // Stop 1: Plaza de San Juan de Dios (Start)
+            [36.5303, -6.2927],
+            // Corner of Plaza/Calle Plocia
+            [36.5300, -6.2930], 
+            // Following Calle Plocia toward the Cathedral
+            [36.5298, -6.2935], 
+            // Turning onto Calle Pelota/passing Arco de la Rosa
+            [36.5293, -6.2943], // Stop 2: Arco de la Rosa
+            // Turning towards Casa del Obispo
+            [36.5295, -6.2948], 
+            // Entering the site area
+            [36.5297, -6.2955], // Stop 3: Casa del Obispo
+            // Tracing the path north to Teatro Romano
+            [36.5303, -6.2945], 
+            [36.5310, -6.2935], 
+            [36.5317, -6.2925], // Stop 4: Teatro Romano
+            // Tracing back south-west to the Cathedral entrance
+            [36.5305, -6.2937], 
+            [36.5294, -6.2952], // Stop 5: Cádiz Cathedral
+            
+            // =========================================================
+            // STRAIGHT LINE SEGMENT: STOPS 6 to 19 (for simplicity)
+            // To improve accuracy, you would add intermediates here too.
+            // =========================================================
+        ];
+        
+        // Append the coordinates for stops 6 through 19 (indices 5 through 18)
+        for (let i = 5; i < stops.length; i++) {
+            detailedCoords.push([stops[i].lat, stops[i].lng]);
+        }
+        // End of path construction
+
 
         /**
          * Custom function to display modal messages instead of alert()
@@ -282,16 +315,15 @@
 
 
         /**
-         * Adds markers, draws the SEGMENTED route line, and populates the sidebar.
+         * Adds markers, draws the simple polyline line, and populates the sidebar.
          */
         function addStopsToMapAndSidebar() {
             const stopsList = document.getElementById('stops-list');
-            const allWaypoints = []; // Array to hold L.LatLng objects for routing
+            // allCoords array replaced by detailedCoords defined above
 
-            stops.forEach((stop, index) => {
+            stops.forEach(stop => {
                 const coords = [stop.lat, stop.lng];
-                // Add coordinates as L.LatLng for the router
-                allWaypoints.push(L.latLng(coords[0], coords[1]));
+                // Note: The polyline now uses detailedCoords, but the markers use the original stop coordinates.
 
                 // --- 1. Create Custom Marker Icon ---
                 const customIcon = L.divIcon({
@@ -301,10 +333,9 @@
                     iconAnchor: [12.5, 25]
                 });
 
-                // --- 2. Create Placeholder Marker for popup binding ---
+                // --- 2. Create Marker and Add to Map ---
                 const marker = L.marker(coords, { 
-                    icon: customIcon,
-                    opacity: 0 // Hide the default marker, the router will use our custom icon
+                    icon: customIcon
                 }).addTo(map);
 
                 // --- 3. Add Popup Content ---
@@ -346,74 +377,18 @@
             });
 
 
-            // --- 5. Segment 1: Stops 1 to 10 (Indices 0 to 9) ---
-            const waypoints1 = allWaypoints.slice(0, 10); // 10 waypoints (0 to 9)
-            
-            routerControl1 = L.Routing.control({
-                waypoints: waypoints1,
-                routeWhileDragging: false,
-                router: L.Routing.osrmv1({ 
-                    serviceUrl: 'https://router.project-osrm.org/route/v1', 
-                    profile: 'foot'
-                }),
-                lineOptions: {
-                    // Use a slightly different color or pattern if needed, but keeping it simple for now
-                    styles: [{ color: '#EF4444', opacity: 0.8, weight: 6, className: 'leaflet-routing-alt' }]
-                },
-                // Custom creation of markers ensures our numbered style is used for stops 1-10
-                createMarker: function(i, waypoint, n) {
-                    return L.marker(waypoint.latLng, {
-                        icon: L.divIcon({
-                            className: 'tour-marker',
-                            html: `<div>${i + 1}</div>`,
-                            iconSize: [25, 25],
-                            iconAnchor: [12.5, 25]
-                        })
-                    }).bindPopup(`<b>Stop ${i + 1}:</b> ${stops[i].name}`);
-                },
-                show: false, 
-                addWaypoints: false,
-                fitSelectedRoutes: true // Fit the map to the route on load (Segment 1 initially)
+            // --- 5. Draw the MANUAL Polyline connecting all points ---
+            L.polyline(detailedCoords, {
+                className: 'tour-path' // Uses the style defined in the <style> block
             }).addTo(map);
 
 
-            // --- 6. Segment 2: Stops 10 to 19 (Indices 9 to 18) ---
-            const waypoints2 = allWaypoints.slice(9, 19); // 10 waypoints (9 to 18)
+            // Fit map bounds to encompass all points
+            // Use the main stop coordinates for bounding to ensure map is centered correctly on POIs
+            const mainStopCoords = stops.map(stop => [stop.lat, stop.lng]);
+            const bounds = L.latLngBounds(mainStopCoords);
+            map.fitBounds(bounds, { padding: [50, 50] });
 
-            routerControl2 = L.Routing.control({
-                waypoints: waypoints2,
-                routeWhileDragging: false,
-                router: L.Routing.osrmv1({ 
-                    serviceUrl: 'https://router.project-osrm.org/route/v1', 
-                    profile: 'foot'
-                }),
-                lineOptions: {
-                    styles: [{ color: '#CC0000', opacity: 0.8, weight: 6, className: 'leaflet-routing-alt' }] // Slightly darker red for visibility, though it draws over the first segment
-                },
-                // Custom creation of markers ensures our numbered style is used for stops 10-19
-                createMarker: function(i, waypoint, n) {
-                    // i is local index for the segment. Add 9 to get the global stop ID (index 0 is global stop 10)
-                    const globalIndex = i + 9; 
-                    const stopId = stops[globalIndex].id;
-
-                    // Ensure stop 10 only has a marker from Route 1 to avoid duplication
-                    if (i === 0) { // This is the start of Segment 2 (Stop 10). We rely on Segment 1's marker.
-                        return null; 
-                    }
-
-                    return L.marker(waypoint.latLng, {
-                        icon: L.divIcon({
-                            className: 'tour-marker',
-                            html: `<div>${stopId}</div>`,
-                            iconSize: [25, 25],
-                            iconAnchor: [12.5, 25]
-                        })
-                    }).bindPopup(`<b>Stop ${stopId}:</b> ${stops[globalIndex].name}`);
-                },
-                show: false, 
-                addWaypoints: false, 
-                fitSelectedRoutes: false // Do NOT fit the map again
-            }).addTo(map);
 
             // Helper function to handle clicks (from map marker or sidebar)
             function handleStopClick(id, marker) {
@@ -440,8 +415,8 @@
          * before attempting to call L.map().
          */
         function checkLeafletReady() {
-            // Check for both L and the Routing Machine (L.Routing)
-            if (typeof L !== 'undefined' && L.map && L.Routing) {
+            // Check only for Leaflet (L)
+            if (typeof L !== 'undefined' && L.map) {
                 try {
                     initMap();
                     addStopsToMapAndSidebar();
@@ -449,7 +424,7 @@
                     console.error("Map initialization failed:", error);
                 }
             } else {
-                // Poll again in 10ms if L or L.Routing is not ready
+                // Poll again in 10ms if L is not ready
                 setTimeout(checkLeafletReady, 10);
             }
         }
