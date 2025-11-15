@@ -78,7 +78,7 @@
         <!-- Sidebar for Stops List -->
         <div id="sidebar" class="w-full lg:w-1/3 bg-white shadow-xl rounded-xl p-4 overflow-y-auto order-2 lg:order-1 h-64 lg:h-full">
             <h1 class="text-3xl font-extrabold text-gray-800 border-b pb-2 mb-4">Cádiz Old Town Tour</h1>
-            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-5 is now manually traced along the streets. </p>
+            <p class="text-sm text-gray-500 mb-4">19 stops | The route for stops 1-7 is now manually traced along the streets. </p>
             <div id="stops-list" class="space-y-2">
                 <!-- Stop items will be injected here -->
             </div>
@@ -142,11 +142,11 @@
         let locateWatchId = null; // To store the ID for position watching
         
         // --- Manual Path Tracing Coordinates ---
-        // This array will hold the final coordinates for the polyline, including intermediates.
+        // This array holds the final coordinates for the polyline, including intermediate points 
+        // manually collected from an external map to follow the actual streets.
         const detailedCoords = [
             // =========================================================
-            // MANUALLY TRACED SEGMENT: STOPS 1 to 5
-            // This segment follows the streets (e.g., Calle Plocia, Barrio del Pópulo)
+            // MANUALLY TRACED SEGMENT: STOPS 1 to 7
             // =========================================================
             
             // Stop 1: Plaza de San Juan de Dios (Start)
@@ -169,14 +169,25 @@
             [36.5305, -6.2937], 
             [36.5294, -6.2952], // Stop 5: Cádiz Cathedral
             
+            // --- Tracing Stop 5 (Cathedral) to Stop 6 (Pópulo) ---
+            [36.5298, -6.2942], // Through Pópulo Archway
+            [36.5305, -6.2938], // Alleyway corner
+            [36.5314, -6.2934], // Stop 6: Barrio del Pópulo
+            
+            // --- Tracing Stop 6 (Pópulo) to Stop 7 (Plaza de las Flores) ---
+            [36.5316, -6.2945], // Calle San Martín
+            [36.5319, -6.2958], // Calle San Martín
+            [36.5320, -6.2969], // Crossing onto the main street
+            [36.5323, -6.2979], // Stop 7: Plaza de las Flores
+
             // =========================================================
-            // STRAIGHT LINE SEGMENT: STOPS 6 to 19 (for simplicity)
-            // To improve accuracy, you would add intermediates here too.
+            // STRAIGHT LINE SEGMENT: STOPS 8 to 19 
+            // Add manual intermediates here to complete the route tracing!
             // =========================================================
         ];
         
-        // Append the coordinates for stops 6 through 19 (indices 5 through 18)
-        for (let i = 5; i < stops.length; i++) {
+        // Append the coordinates for stops 8 through 19 (indices 7 through 18)
+        for (let i = 7; i < stops.length; i++) {
             detailedCoords.push([stops[i].lat, stops[i].lng]);
         }
         // End of path construction
