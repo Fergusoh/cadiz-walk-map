@@ -60,7 +60,6 @@ const stops = [
     description: "Small, sheltered beach with fishing boats and the historic Balneario. Magical at sunset." }
 ];
 
-
 // ---------------------------
 //  DETAILED ROUTE PATH (Corrected)
 // ---------------------------
@@ -128,7 +127,7 @@ const detailedCoords = [
   [36.5350, -6.3041],
   [36.5356, -6.3070],
 
-  // 15 → 17 → 16 (corrected natural order)
+  // 15 → 17 → 16
   [36.5350, -6.3073], // Candelaria
   [36.5356, -6.3055],
   [36.5360, -6.3040], // Genovés
@@ -143,7 +142,7 @@ const detailedCoords = [
 ];
 
 // ---------------------------
-//  GLOBAL STATE
+//  GLOBAL STATE & DOM
 // ---------------------------
 let map;
 let allMarkers = [];
@@ -153,10 +152,9 @@ let locateWatchId = null;
 
 let completedStopIds = new Set();
 let currentTargetStopId = null;
-let deviceHeading = null;
 let lastUserLatLng = null;
+let navigationLocked = false;
 
-// DOM
 const stopsListEl = document.getElementById("stops-list");
 const locateButton = document.getElementById("locate-button");
 const modalEl = document.getElementById("message-modal");
@@ -166,10 +164,11 @@ const progressLabel = document.getElementById("progress-label");
 const progressPercent = document.getElementById("progress-percent");
 const progressBar = document.getElementById("progress-bar");
 const tourStatus = document.getElementById("tour-status");
-const compassArrow = document.getElementById("compass-arrow");
+const navBanner = document.getElementById("nav-banner");
+const navResumeBtn = document.getElementById("nav-resume");
 
 // ---------------------------
-//  HELPER FUNCTIONS
+//  UTILITIES
 // ---------------------------
 function showMessageModal(title, text) {
   modalTitleEl.textContent = title;
@@ -177,6 +176,10 @@ function showMessageModal(title, text) {
   modalEl.classList.remove("hidden");
   modalEl.classList.add("flex");
 }
+
+document.getElementById("modal-close-button").addEventListener("click", () => {
+  modalEl.classList.add("hidden");
+});
 
 modalEl.addEventListener("click", (e) => {
   if (e.target.id === "message-modal") {
@@ -188,16 +191,27 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
   return L.latLng(lat1, lng1).distanceTo([lat2, lng2]);
 }
 
+// Bearing from A to B (degrees from North)
 function bearingDegrees(lat1, lng1, lat2, lng2) {
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δλ = (lng2 - lng1) * Math.PI / 180;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
 
   const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) -
-            Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
 
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  let θ = Math.atan2(y, x);
+  θ = (θ * 180) / Math.PI;
+  return (θ + 360) % 360;
+}
+
+// Convert bearing to text (N/NE/E/etc.)
+function bearingToText(bearing) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const idx = Math.round(bearing / 45) % 8;
+  return dirs[idx];
 }
 
 function getMarkerClassName(category, extra = "") {
@@ -215,6 +229,15 @@ function updateProgressUI() {
 
   if (completed === total) {
     tourStatus.classList.remove("hidden");
+  } else {
+    tourStatus.classList.add("hidden");
+  }
+}
+
+function setNavigationLocked(lock) {
+  navigationLocked = lock;
+  if (navBanner) {
+    navBanner.classList.toggle("hidden", !lock);
   }
 }
 
@@ -231,7 +254,10 @@ function initMap() {
     attribution: "© OpenStreetMap contributors"
   }).addTo(map);
 
-  // Draw walking path
+  // Zoom controls in top-right
+  L.control.zoom({ position: "topright" }).addTo(map);
+
+  // Route line
   L.polyline(detailedCoords, {
     color: "#EF4444",
     weight: 5,
@@ -244,27 +270,32 @@ function initMap() {
     padding: [50, 50]
   });
 
+  // Tap map to close popups
+  map.on("click", () => {
+    map.closePopup();
+  });
+
   locateButton.addEventListener("click", toggleLocationTracking);
 
-  if (window.DeviceOrientationEvent) {
-    window.addEventListener("deviceorientation", (event) => {
-      if (event.alpha !== null) {
-        deviceHeading = event.alpha;
-        updateCompass();
+  if (navResumeBtn) {
+    navResumeBtn.addEventListener("click", () => {
+      setNavigationLocked(false);
+      if (lastUserLatLng) {
+        updateNavigation(lastUserLatLng[0], lastUserLatLng[1]);
       }
     });
   }
 }
 
 // ---------------------------
-//  ADD MARKERS + SIDEBAR
+//  MARKERS + SIDEBAR
 // ---------------------------
 function addStopsToMapAndSidebar() {
   stops.forEach((stop) => {
     const icon = L.divIcon({
       className: getMarkerClassName(stop.category),
-      iconSize: [25, 25],
-      iconAnchor: [12.5, 25],
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
       html: `<div>${stop.id}</div>`
     });
 
@@ -279,11 +310,14 @@ function addStopsToMapAndSidebar() {
 
     const item = document.createElement("div");
     item.id = `stop-${stop.id}`;
-    item.className = "sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400";
+    item.className =
+      "sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400";
     item.innerHTML = `
       <div class="flex items-center space-x-3">
-        <div class="w-7 h-7 flex items-center justify-center rounded-full text-white font-bold marker-dot marker-${stop.category}">${stop.id}</div>
-        <div>
+        <div class="marker-dot marker-${stop.category}">
+          ${stop.id}
+        </div>
+        <div class="flex-1">
           <h3 class="font-semibold text-sm">${stop.name}</h3>
           <p class="text-xs text-gray-500">${stop.description}</p>
         </div>
@@ -292,6 +326,10 @@ function addStopsToMapAndSidebar() {
     `;
 
     item.addEventListener("click", () => {
+      // Lock navigation on manual selection
+      setNavigationLocked(true);
+      currentTargetStopId = stop.id;
+
       map.flyTo([stop.lat, stop.lng], 17);
       marker.openPopup();
 
@@ -299,19 +337,20 @@ function addStopsToMapAndSidebar() {
       highlightSidebarStop(stop.id);
       highlightMapMarker(stop.id);
 
-      currentTargetStopId = stop.id;
-      updateCompass();
+      if (lastUserLatLng) {
+        updateHeadingIndicator(stop, lastUserLatLng[0], lastUserLatLng[1]);
+      }
     });
 
     stopsListEl.appendChild(item);
   });
 }
 
-// Highlight single sidebar item
 function highlightSidebarStop(id) {
-  document.querySelectorAll(".sidebar-item").forEach(el =>
-    el.classList.remove("bg-red-50", "border-red-500", "shadow-md")
-  );
+  document.querySelectorAll(".sidebar-item").forEach((el) => {
+    el.classList.remove("bg-red-50", "border-red-500", "shadow-md");
+  });
+  if (!id) return;
   const el = document.getElementById(`stop-${id}`);
   if (!el) return;
   el.classList.add("bg-red-50", "border-red-500", "shadow-md");
@@ -319,7 +358,9 @@ function highlightSidebarStop(id) {
 }
 
 function expandSidebarItem(id) {
-  document.querySelectorAll(".sidebar-details").forEach(e => e.classList.add("hidden"));
+  document.querySelectorAll(".sidebar-details").forEach((e) =>
+    e.classList.add("hidden")
+  );
   const el = document.querySelector(`#stop-${id} .sidebar-details`);
   if (el) el.classList.remove("hidden");
 }
@@ -328,9 +369,12 @@ function highlightMapMarker(id) {
   allMarkers.forEach(({ stop, marker }) => {
     const isTarget = stop.id === id;
     const icon = L.divIcon({
-      className: getMarkerClassName(stop.category, isTarget ? "next-stop-marker" : ""),
-      iconSize: isTarget ? [30, 30] : [25, 25],
-      iconAnchor: isTarget ? [15, 30] : [12.5, 25],
+      className: getMarkerClassName(
+        stop.category,
+        isTarget ? "next-stop-marker" : ""
+      ),
+      iconSize: isTarget ? [30, 30] : [28, 28],
+      iconAnchor: isTarget ? [15, 30] : [14, 28],
       html: `<div>${stop.id}</div>`
     });
     marker.setIcon(icon);
@@ -366,69 +410,86 @@ function onLocationFound(e) {
   updateNavigation(latitude, longitude);
 }
 
-// Error handler
-function onLocationError(e) {
-  showMessageModal("Location Error", "Unable to access GPS. Please allow location permissions.");
+function onLocationError() {
+  showMessageModal(
+    "Location Error",
+    "Unable to access GPS. Please allow location permissions."
+  );
   stopLocationTracking();
 }
 
-// Start GPS
 function startLocationTracking() {
-  locateWatchId = navigator.geolocation.watchPosition(onLocationFound, onLocationError, {
-    enableHighAccuracy: true,
-    timeout: 5000,
-    maximumAge: 0
-  });
-  locateButton.classList.add("text-red-600");
-  showMessageModal("Location On", "You are now being located. The nearest stop will be highlighted.");
+  if (!navigator.geolocation) {
+    showMessageModal("Not Supported", "Geolocation is not supported.");
+    return;
+  }
+
+  // Resume auto navigation when location tracking starts
+  setNavigationLocked(false);
+
+  locateWatchId = navigator.geolocation.watchPosition(
+    onLocationFound,
+    onLocationError,
+    {
+      enableHighAccuracy: true,
+      timeout: 5000,
+      maximumAge: 0
+    }
+  );
+  locateButton.classList.add("text-red-600", "font-bold");
+  showMessageModal(
+    "Location On",
+    "You are now being located. The nearest stop will be highlighted."
+  );
 }
 
-// Stop GPS
 function stopLocationTracking() {
   if (locateWatchId !== null) {
     navigator.geolocation.clearWatch(locateWatchId);
     locateWatchId = null;
   }
 
-  locationMarker && map.removeLayer(locationMarker);
-  accuracyCircle && map.removeLayer(accuracyCircle);
+  if (locationMarker) {
+    map.removeLayer(locationMarker);
+    locationMarker = null;
+  }
+  if (accuracyCircle) {
+    map.removeLayer(accuracyCircle);
+    accuracyCircle = null;
+  }
 
-  locationMarker = null;
-  accuracyCircle = null;
-
+  lastUserLatLng = null;
   highlightMapMarker(null);
   highlightSidebarStop(null);
 
-  locateButton.classList.remove("text-red-600");
+  locateButton.classList.remove("text-red-600", "font-bold");
+  showMessageModal("Location Off", "Location tracking has been turned off.");
 }
 
-// Toggle GPS
 function toggleLocationTracking() {
   if (locateWatchId === null) startLocationTracking();
   else stopLocationTracking();
 }
 
-// Determine nearest remaining stop
 function findNearestStop(lat, lng) {
   let nearest = null;
-  let best = Infinity;
+  let bestDist = Infinity;
 
-  stops.forEach(stop => {
+  stops.forEach((stop) => {
     if (completedStopIds.has(stop.id)) return;
     const d = distanceMeters(lat, lng, stop.lat, stop.lng);
-    if (d < best) {
-      best = d;
+    if (d < bestDist) {
+      bestDist = d;
       nearest = stop;
     }
   });
 
-  return { nearest, distance: best };
+  return { nearest, distance: bestDist };
 }
 
-// Main navigation logic
 function updateNavigation(lat, lng) {
-  // Mark stops as completed when close
-  stops.forEach(stop => {
+  // Mark stops complete when close
+  stops.forEach((stop) => {
     if (!completedStopIds.has(stop.id)) {
       const d = distanceMeters(lat, lng, stop.lat, stop.lng);
       if (d < 30) {
@@ -439,60 +500,86 @@ function updateNavigation(lat, lng) {
   });
 
   if (completedStopIds.size === stops.length) {
-    showMessageModal("Tour Complete 🎉", "You’ve reached all 19 stops. Enjoy Cádiz!");
+    showMessageModal(
+      "Tour Complete 🎉",
+      "You’ve reached all 19 stops. Enjoy Cádiz!"
+    );
     currentTargetStopId = null;
     highlightMapMarker(null);
+    highlightSidebarStop(null);
     return;
   }
 
-  const { nearest, distance } = findNearestStop(lat, lng);
-  if (!nearest) return;
+  // Determine target stop
+  let targetStop = null;
+  let distance = null;
 
-  currentTargetStopId = nearest.id;
+  if (navigationLocked && currentTargetStopId) {
+    targetStop = stops.find((s) => s.id === currentTargetStopId);
+    if (!targetStop) return;
+    distance = distanceMeters(lat, lng, targetStop.lat, targetStop.lng);
+  } else {
+    const res = findNearestStop(lat, lng);
+    if (!res.nearest) return;
+    targetStop = res.nearest;
+    distance = res.distance;
+    currentTargetStopId = targetStop.id;
+  }
 
-  highlightMapMarker(nearest.id);
-  highlightSidebarStop(nearest.id);
-  expandSidebarItem(nearest.id);
-  updateCompass();
+  highlightMapMarker(targetStop.id);
+  highlightSidebarStop(targetStop.id);
+  expandSidebarItem(targetStop.id);
 
-  // Update sidebar guidance
-  document.querySelectorAll(".guidance-info").forEach(e => e.remove());
-  const card = document.getElementById(`stop-${nearest.id}`);
-  const guide = document.createElement("div");
-  guide.className = "guidance-info mt-2 pt-2 border-t border-red-200 text-xs";
-  guide.innerHTML = `
-    <p class="text-gray-500 uppercase text-[10px]">Next Stop</p>
-    <p class="font-semibold text-red-700">Distance: ${Math.round(distance)} m</p>
+  // Sidebar guidance update
+  document.querySelectorAll(".guidance-info").forEach((e) => e.remove());
+  const card = document.getElementById(`stop-${targetStop.id}`);
+  if (card) {
+    const guide = document.createElement("div");
+    guide.className =
+      "guidance-info mt-2 pt-2 border-t border-red-200 text-xs";
+    const distText =
+      distance < 1000
+        ? `${Math.round(distance)} m`
+        : `${(distance / 1000).toFixed(2)} km`;
+    guide.innerHTML = `
+      <p class="text-gray-500 uppercase text-[10px]">Next Stop</p>
+      <p class="font-semibold text-red-700">Distance: ${distText}</p>
+    `;
+    card.appendChild(guide);
+
+    // Heading indicator
+    updateHeadingIndicator(targetStop, lat, lng, card);
+  }
+}
+
+// ---------------------------
+//  SIDEBAR HEADING INDICATOR
+// ---------------------------
+function updateHeadingIndicator(stop, userLat, userLng, cardEl = null) {
+  if (!stop || userLat == null || userLng == null) return;
+  const bearing = bearingDegrees(userLat, userLng, stop.lat, stop.lng);
+  const directionText = bearingToText(bearing);
+
+  const card =
+    cardEl || document.getElementById(`stop-${stop.id}`);
+  if (!card) return;
+
+  // Remove old heading-indicator
+  card.querySelectorAll(".heading-indicator").forEach((e) => e.remove());
+
+  const wrap = document.createElement("div");
+  wrap.className = "heading-indicator";
+  wrap.innerHTML = `
+    <div class="heading-circle">
+      <div class="heading-arrow" style="transform: rotate(${bearing}deg);"></div>
+    </div>
+    <p class="text-[11px] text-gray-600">Head ${directionText}</p>
   `;
-  card.appendChild(guide);
+  card.appendChild(wrap);
 }
 
 // ---------------------------
-//  COMPASS
-// ---------------------------
-function updateCompass() {
-  if (!currentTargetStopId || !lastUserLatLng) {
-    compassArrow.style.opacity = "0.3";
-    compassArrow.style.transform = "rotate(0deg)";
-    return;
-  }
-
-  const stop = stops.find(s => s.id === currentTargetStopId);
-  const [lat, lng] = lastUserLatLng;
-
-  const bearing = bearingDegrees(lat, lng, stop.lat, stop.lng);
-  let rotation = bearing;
-
-  if (deviceHeading !== null) {
-    rotation = bearing - deviceHeading;
-  }
-
-  compassArrow.style.opacity = "1";
-  compassArrow.style.transform = `rotate(${rotation}deg)`;
-}
-
-// ---------------------------
-//  START APP
+//  BOOT
 // ---------------------------
 function boot() {
   if (typeof L !== "undefined" && L.map) {
@@ -504,4 +591,3 @@ function boot() {
 }
 
 boot();
-
