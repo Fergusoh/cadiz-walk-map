@@ -2,7 +2,8 @@ html,
 body {
   height: 100%;
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Inter",
+    sans-serif;
 }
 
 #map {
@@ -11,10 +12,10 @@ body {
   border-radius: 0.75rem;
 }
 
-/* Map control buttons */
+/* Map control buttons (locate) */
 .map-controls {
   position: absolute;
-  top: 0.75rem;
+  top: 3.5rem;           /* sits just under Leaflet zoom (top-right) */
   right: 0.75rem;
   z-index: 1000;
   display: flex;
@@ -36,12 +37,16 @@ body {
   transform: translateY(-1px);
 }
 
-/* Leaflet popups */
+/* Leaflet popup styling tweaks */
 .leaflet-popup-content-wrapper {
   border-radius: 0.75rem;
 }
 
-/* Base tour marker */
+.leaflet-popup-close-button {
+  transform: scale(1.3); /* slightly bigger X for easier closing */
+}
+
+/* Base tour marker (map) */
 .tour-marker {
   display: flex;
   align-items: center;
@@ -49,11 +54,11 @@ body {
   font-weight: bold;
   color: #ffffff;
   border: 2px solid #ffffff;
-  border-radius: 50%;
-  width: 25px;
-  height: 25px;
+  border-radius: 50% !important;
+  width: 28px !important;
+  height: 28px !important;
+  line-height: 28px !important;
   text-align: center;
-  line-height: 25px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
   transition: all 0.2s ease-in-out;
 }
@@ -79,59 +84,55 @@ body {
   background-color: #f97316; /* orange-500-ish */
 }
 
-/* Larger style + glow for the current target stop */
+/* Target / next stop: subtle emphasis, no pulsing */
 .next-stop-marker {
   border-width: 3px !important;
-  box-shadow: 0 0 12px rgba(248, 113, 113, 0.9);
-  animation: marker-pulse 1.2s infinite ease-in-out;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
 }
 
-/* Sidebar mini-dot (uses same category colors) */
+/* Sidebar mini dot icon */
 .marker-dot {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #ffffff;
 }
 
-/* Re-use the same colors as marker-* for the dot bg via Tailwind inline classes or here if needed */
-
-/* Marker pulse animation */
-@keyframes marker-pulse {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.12);
-  }
-  100% {
-    transform: scale(1);
-  }
+/* Sidebar heading indicator (circle + arrow) */
+.heading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
 }
 
-/* Compass arrow: simple triangle inside circle */
-.compass-arrow {
+.heading-circle {
   width: 22px;
   height: 22px;
   border-radius: 9999px;
   border: 2px solid #ef4444;
   background-color: #fef2f2;
   position: relative;
-  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-  opacity: 0.4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.compass-arrow::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 4px;
-  transform: translateX(-50%);
+.heading-arrow {
   width: 0;
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-bottom: 9px solid #ef4444;
+  transform-origin: 50% 80%;
+  transition: transform 0.2s ease-out;
 }
 
-/* Sidebar highlight when active */
+/* Active sidebar item spacing */
 .sidebar-item.bg-red-50 {
-  padding-bottom: 0.8rem;
+  padding-bottom: 0.9rem;
 }
