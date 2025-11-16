@@ -1,17 +1,17 @@
 // Data for all 19 stops
 const stops = [
-    { id: 1, name: "Plaza de San Juan de Dios", lat: 36.5303, lng: -6.2927, description: "City hall, fountains, palms — Cádiz’s traditional civic heart and perfect starting point." },
+    { id: 1, name: "Plaza de San Juan de Dios", lat: 36.5303, lng: -6.2927, description: "City hall, fountains, palms — Cádiz's traditional civic heart and perfect starting point." },
     { id: 2, name: "Arco de la Rosa (Medieval Gate)", lat: 36.5293, lng: -6.2943, description: "One of the original medieval gateways into Cádiz; connects Cathedral square to the old walls." },
     { id: 3, name: "Casa del Obispo (Archaeological Site)", lat: 36.5297, lng: -6.2955, description: "Layers of Roman, Visigothic, and Islamic Cádiz revealed underground beside the Cathedral." },
     { id: 4, name: "Teatro Romano", lat: 36.5317, lng: -6.2925, description: "1st-century BC Roman theatre hidden behind the cathedral. Free entry and surprisingly huge." },
-    { id: 5, name: "Cádiz Cathedral (Baroque / Neo-classical)", lat: 36.5294, lng: -6.2952, description: "The “Cathedral of the Americas,” built with New World silver. Tower offers the best views in Cádiz." },
+    { id: 5, name: "Cádiz Cathedral (Baroque / Neo-classical)", lat: 36.5294, lng: -6.2952, description: "The "Cathedral of the Americas," built with New World silver. Tower offers the best views in Cádiz." },
     { id: 6, name: "Barrio del Pópulo (Medieval Quarter)", lat: 36.5314, lng: -6.2934, description: "Oldest neighbourhood in Western Europe. Arches, tight alleyways, medieval atmosphere." },
-    { id: 7, name: "Plaza de las Flores", lat: 36.5323, lng: -6.2979, description: "Cádiz’s liveliest square — flower stalls, cafés, and people-watching." },
+    { id: 7, name: "Plaza de las Flores", lat: 36.5323, lng: -6.2979, description: "Cádiz's liveliest square — flower stalls, cafés, and people-watching." },
     { id: 8, name: "Mercado Central (Central Market)", lat: 36.5318, lng: -6.2983, description: "Seafood hall, tapas stalls, fresh produce, vibrant energy." },
-    { id: 9, name: "Plaza Mina (19th-Century Garden Square)", lat: 36.5352, lng: -6.2969, description: "Elegant shaded square filled with ficus trees; one of Cádiz’s most atmospheric plazas." },
+    { id: 9, name: "Plaza Mina (19th-Century Garden Square)", lat: 36.5352, lng: -6.2969, description: "Elegant shaded square filled with ficus trees; one of Cádiz's most atmospheric plazas." },
     { id: 10, name: "Museo de Cádiz", lat: 36.5352, lng: -6.2965, description: "Phoenician sarcophagi, Roman statues, archaeology of ancient Gades, and a fine arts gallery." },
-    { id: 11, name: "Torre Tavira (Camera Obscura)", lat: 36.5367, lng: -6.2950, description: "18th-century watchtower with Cádiz’s best panoramic view and a working camera obscura." },
-    { id: 12, name: "Plaza del Mentidero", lat: 36.5356, lng: -6.3008, description: "Charming plaza known historically as a meeting place for gossip and debate (“mentidero”)." },
+    { id: 11, name: "Torre Tavira (Camera Obscura)", lat: 36.5367, lng: -6.2950, description: "18th-century watchtower with Cádiz's best panoramic view and a working camera obscura." },
+    { id: 12, name: "Plaza del Mentidero", lat: 36.5356, lng: -6.3008, description: "Charming plaza known historically as a meeting place for gossip and debate ("mentidero")." },
     { id: 13, name: "Oratorio de la Santa Cueva", lat: 36.5336, lng: -6.2953, description: "Quiet chapel with dramatic religious art and paintings attributed to Goya." },
     { id: 14, name: "Gran Teatro Falla", lat: 36.5358, lng: -6.3008, description: "Red-brick Neo-Mudejar theatre — the heart of the Cádiz Carnival and its famous chirigotas." },
     { id: 15, name: "Alameda Apodaca (Seaside Promenade)", lat: 36.5370, lng: -6.2983, description: "Beautiful waterfront walk with tile benches, gardens, lanterns, and huge ficus trees." },
@@ -33,6 +33,9 @@ let currentStopIndex = 1;
 let allMarkers = [];
 let highlightedMarker = null;
 
+// Progress tracking - Set to track completed stops (using stop IDs)
+let completedStops = new Set();
+
 // Custom Icon Options
 const defaultIconOptions = {
     className: 'tour-marker',
@@ -45,6 +48,13 @@ const nextStopIconOptions = {
     className: 'tour-marker next-stop-marker',
     iconSize: [30, 30],
     iconAnchor: [15, 30]
+};
+
+// Completed stop icon
+const completedIconOptions = {
+    className: 'tour-marker completed-marker',
+    iconSize: [25, 25],
+    iconAnchor: [12.5, 25]
 };
 
 // --- Manual Path Tracing Coordinates ---
@@ -94,6 +104,128 @@ const detailedCoords = [
     [36.5330, -6.3045]
 ];
 
+// ===== PROGRESS TRACKING FUNCTIONS =====
+
+function loadProgress() {
+    const saved = localStorage.getItem('cadiz-tour-progress');
+    if (saved) {
+        try {
+            const data = JSON.parse(saved);
+            completedStops = new Set(data.completed || []);
+            currentStopIndex = data.currentIndex || 1;
+        } catch (e) {
+            console.error('Error loading progress:', e);
+            completedStops = new Set();
+        }
+    }
+}
+
+function saveProgress() {
+    const data = {
+        completed: Array.from(completedStops),
+        currentIndex: currentStopIndex,
+        lastUpdated: new Date().toISOString()
+    };
+    localStorage.setItem('cadiz-tour-progress', JSON.stringify(data));
+}
+
+function markStopAsCompleted(stopId) {
+    if (completedStops.has(stopId)) return; // Already completed
+    
+    completedStops.add(stopId);
+    saveProgress();
+    updateProgressDisplay();
+    updateStopVisuals(stopId);
+    
+    // Check if tour is complete
+    if (completedStops.size === stops.length) {
+        showCelebrationModal();
+    }
+}
+
+function updateProgressDisplay() {
+    const completed = completedStops.size;
+    const total = stops.length;
+    const percentage = Math.round((completed / total) * 100);
+    
+    // Update text
+    document.getElementById('progress-text').textContent = `${completed}/${total} stops`;
+    document.getElementById('progress-percentage').textContent = `${percentage}%`;
+    
+    // Update progress bar
+    document.getElementById('progress-bar').style.width = `${percentage}%`;
+}
+
+function updateStopVisuals(stopId) {
+    // Update marker on map
+    const markerData = allMarkers.find(m => m.id === stopId);
+    if (markerData) {
+        const completedIcon = L.divIcon({
+            ...completedIconOptions,
+            html: `<div>✓</div>`,
+        });
+        markerData.marker.setIcon(completedIcon);
+    }
+    
+    // Update sidebar item
+    const sidebarItem = document.getElementById(`stop-${stopId}`);
+    if (sidebarItem) {
+        sidebarItem.classList.add('completed');
+        
+        // Add checkmark to sidebar
+        const numberBadge = sidebarItem.querySelector('.w-6.h-6');
+        if (numberBadge) {
+            numberBadge.innerHTML = '✓';
+            numberBadge.classList.add('checkmark-animated', 'bg-green-500');
+            numberBadge.classList.remove('bg-red-500');
+        }
+    }
+}
+
+function resetProgress() {
+    if (confirm('Are you sure you want to reset your progress? This will clear all completed stops.')) {
+        completedStops.clear();
+        currentStopIndex = 1;
+        saveProgress();
+        
+        // Reset all visuals
+        updateProgressDisplay();
+        
+        // Reset all markers
+        allMarkers.forEach(markerData => {
+            const defaultIcon = L.divIcon({
+                ...defaultIconOptions,
+                html: `<div>${markerData.id}</div>`,
+            });
+            markerData.marker.setIcon(defaultIcon);
+        });
+        
+        // Reset all sidebar items
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            item.classList.remove('completed', 'bg-red-100', 'border-red-600');
+            const badge = item.querySelector('.w-6');
+            if (badge) {
+                const stopId = parseInt(item.id.replace('stop-', ''));
+                badge.innerHTML = stopId;
+                badge.classList.remove('bg-green-500', 'checkmark-animated');
+                badge.classList.add('bg-red-500');
+            }
+        });
+        
+        // Clear guidance
+        document.querySelectorAll('.guidance-info').forEach(el => el.remove());
+        
+        showMessageModal("Progress Reset", "Your tour progress has been reset. Start exploring again!");
+    }
+}
+
+function showCelebrationModal() {
+    document.getElementById('celebration-modal').classList.remove('hidden');
+    document.getElementById('celebration-modal').classList.add('flex');
+}
+
+// ===== EXISTING FUNCTIONS (MODIFIED) =====
+
 function showMessageModal(title, text) {
     document.getElementById('modal-title').innerText = title;
     document.getElementById('modal-text').innerText = text;
@@ -106,18 +238,27 @@ function highlightMapMarker(idToHighlight) {
         const prevStop = highlightedMarker.id;
         const markerToRevert = allMarkers.find(m => m.id === prevStop)?.marker;
         if (markerToRevert) {
-            const defaultIcon = L.divIcon({
-                ...defaultIconOptions,
-                html: `<div>${prevStop}</div>`,
-            });
-            markerToRevert.setIcon(defaultIcon);
+            // Check if this stop is completed
+            if (completedStops.has(prevStop)) {
+                const completedIcon = L.divIcon({
+                    ...completedIconOptions,
+                    html: `<div>✓</div>`,
+                });
+                markerToRevert.setIcon(completedIcon);
+            } else {
+                const defaultIcon = L.divIcon({
+                    ...defaultIconOptions,
+                    html: `<div>${prevStop}</div>`,
+                });
+                markerToRevert.setIcon(defaultIcon);
+            }
         }
         highlightedMarker = null;
     }
 
     if (idToHighlight) {
         const newMarkerData = allMarkers.find(m => m.id === idToHighlight);
-        if (newMarkerData) {
+        if (newMarkerData && !completedStops.has(idToHighlight)) {
             const newIcon = L.divIcon({
                 ...nextStopIconOptions,
                 html: `<div>${idToHighlight}</div>`,
@@ -159,8 +300,10 @@ function updateGuidanceInSidebar(userLat, userLng) {
     else distanceText = `${(distance / 1000).toFixed(2)} km`;
 
     if (distance < 50) {
+        markStopAsCompleted(nextStop.id);
         showMessageModal("Stop Reached!", `You are within 50 meters of Stop ${nextStop.id}: ${nextStop.name}. Moving to the next stop.`);
         currentStopIndex++;
+        saveProgress();
         updateGuidanceInSidebar(userLat, userLng);
         return;
     }
@@ -187,7 +330,7 @@ function highlightSidebarStop(id) {
         item.classList.remove('bg-red-100', 'border-red-600');
     });
     const itemToHighlight = document.getElementById(`stop-${id}`);
-    if (itemToHighlight) {
+    if (itemToHighlight && !completedStops.has(id)) {
         itemToHighlight.classList.add('bg-red-100', 'border-red-600');
         itemToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -215,6 +358,14 @@ function initMap() {
         .addEventListener('click', () => {
             document.getElementById('message-modal').classList.add('hidden');
         });
+
+    document.getElementById('celebration-close-button')
+        .addEventListener('click', () => {
+            document.getElementById('celebration-modal').classList.add('hidden');
+        });
+
+    document.getElementById('reset-progress-btn')
+        .addEventListener('click', resetProgress);
 }
 
 function onLocationFound(e) {
@@ -271,7 +422,6 @@ function startLocationTracking() {
     }
 
     map.isUserLocating = true;
-    currentStopIndex = 1;
 
     locateWatchId = navigator.geolocation.watchPosition(onLocationFound, onLocationError, {
         enableHighAccuracy: true,
@@ -318,14 +468,25 @@ function addStopsToMapAndSidebar() {
 
     stops.forEach(stop => {
         const coords = [stop.lat, stop.lng];
+        const isCompleted = completedStops.has(stop.id);
 
-        const defaultIcon = L.divIcon({
-            ...defaultIconOptions,
-            html: `<div>${stop.id}</div>`,
+        // Choose appropriate icon based on completion status
+        let iconOptions, htmlContent;
+        if (isCompleted) {
+            iconOptions = completedIconOptions;
+            htmlContent = '✓';
+        } else {
+            iconOptions = defaultIconOptions;
+            htmlContent = stop.id;
+        }
+
+        const markerIcon = L.divIcon({
+            ...iconOptions,
+            html: `<div>${htmlContent}</div>`,
         });
 
         const marker = L.marker(coords, {
-            icon: defaultIcon
+            icon: markerIcon
         }).addTo(map);
 
         allMarkers.push({ id: stop.id, marker: marker });
@@ -333,6 +494,7 @@ function addStopsToMapAndSidebar() {
         const popupContent = `
             <div class="font-bold text-red-600 text-lg mb-1">STOP ${stop.id}: ${stop.name}</div>
             <p class="text-gray-700 text-sm">${stop.description}</p>
+            ${isCompleted ? '<p class="text-green-600 font-semibold text-xs mt-2">✓ Completed</p>' : ''}
         `;
         marker.bindPopup(popupContent, { offset: L.point(0, -10) });
 
@@ -340,11 +502,14 @@ function addStopsToMapAndSidebar() {
         listItem.id = `stop-${stop.id}`;
         listItem.setAttribute('role', 'button');
         listItem.setAttribute('tabindex', '0');
-        listItem.className = 'sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50';
+        listItem.className = `sidebar-item p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 ${isCompleted ? 'completed' : ''}`;
+
+        const badgeClass = isCompleted ? 'bg-green-500' : 'bg-red-500';
+        const badgeContent = isCompleted ? '✓' : stop.id;
 
         listItem.innerHTML = `
             <div class="flex items-center space-x-3">
-                <div class="w-6 h-6 flex items-center justify-center rounded-full bg-red-500 text-white font-bold text-sm shadow-md flex-shrink-0">${stop.id}</div>
+                <div class="w-6 h-6 flex items-center justify-center rounded-full ${badgeClass} text-white font-bold text-sm shadow-md flex-shrink-0">${badgeContent}</div>
                 <div class="flex-grow">
                     <h3 class="text-base font-semibold text-gray-800">${stop.name}</h3>
                     <p class="text-xs text-gray-500 truncate">${stop.description}</p>
@@ -377,6 +542,7 @@ function addStopsToMapAndSidebar() {
 
         if (id < stops.length) {
             currentStopIndex = id;
+            saveProgress();
             if (locateWatchId !== null) {
                 showMessageModal("Navigation Updated", `Now navigating toward STOP ${currentStopIndex + 1}.`);
                 updateGuidanceInSidebar(
@@ -393,8 +559,10 @@ function addStopsToMapAndSidebar() {
 function checkLeafletReady() {
     if (typeof L !== 'undefined' && L.map) {
         try {
+            loadProgress(); // Load saved progress first
             initMap();
             addStopsToMapAndSidebar();
+            updateProgressDisplay(); // Initialize progress display
         } catch (error) {
             console.error("Map initialization failed:", error);
         }
